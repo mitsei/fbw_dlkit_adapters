@@ -1,0 +1,3 @@
+# how do we inject this into records registry?
+# for now, hardcode the import to this from AssessmentSession and AssessmentResultsSession...
+# perhaps handle it in a runtime config, later.
