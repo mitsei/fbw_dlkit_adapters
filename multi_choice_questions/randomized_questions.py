@@ -2,7 +2,8 @@ import json
 
 from bson import ObjectId
 
-from dlkit.mongo.assessment.objects import Item, Question
+from dlkit.mongo.osid import record_templates as osid_records
+from dlkit.mongo.assessment.objects import Question
 from dlkit.mongo.assessment.sessions import ItemLookupSession
 from dlkit.mongo.utilities import MongoClientValidated
 from dlkit.mongo.osid.osid_errors import IllegalState
@@ -10,8 +11,9 @@ from dlkit.mongo.primitives import Id
 
 from random import shuffle
 
-from urllib import unquote
+from urllib import unquote, quote
 
+from ...osid.base_records import ObjectInitRecord
 from ...assessment.basic.multi_choice_records import MultiChoiceTextAndFilesQuestionFormRecord,\
     MultiChoiceTextAndFilesQuestionRecord
 
@@ -62,35 +64,57 @@ class RandomizedMCItemLookupSession(ItemLookupSession):
     """
 
     def get_item(self, item_id):
-        if item_id.authority == 'magic-randomize-choices-question-record':
+        authority = item_id.authority
+        ils = ItemLookupSession(runtime=self._runtime,
+                                proxy=self._proxy)
+        ils.use_federated_bank_view()
+        if authority == 'magic-randomize-choices-question-record':
             # for now, this will not work with aliased IDs...
-            original_identifier = unquote(item_id.identifier).split('?')[0]
-            collection = MongoClientValidated('assessment',
-                                              collection='Item',
-                                              runtime=self._runtime)
-            result = collection.find_one(
-                dict({'_id': ObjectId(original_identifier)},
-                     **self._view_filter()))
-
-            # inject this back in so that get_question() can extract the choices
-            result['_id'] = item_id.identifier
-            return RandomizedMCItem(osid_object_map=result,
-                                    runtime=self._runtime,
-                                    proxy=self._proxy)
+            magic_identifier = unquote(item_id.identifier)
+            original_identifier = magic_identifier.split('?')[0]
+            choice_ids = json.loads(magic_identifier.split('?')[-1])
+            original_item_id = Id(identifier=original_identifier,
+                                  namespace=item_id.namespace,
+                                  authority=self._catalog.ident.authority)
+            orig_item = ils.get_item(original_item_id)
+            orig_item.set_params(choice_ids)
+            return orig_item
         else:
-            return super(RandomizedMCItemLookupSession, self).get_item(item_id)
+            return ils.get_item(item_id)
 
 
-class RandomizedMCItem(Item):
+class MagicRandomizedMCItemRecord(ObjectInitRecord):
+    _implemented_record_type_identifiers = [
+        'magic-randomized-multiple-choice'
+    ]
+    def __init__(self, *args, **kwargs):
+        super(MagicRandomizedMCItemRecord, self).__init__(*args, **kwargs)
+        self._magic_params = None
+
     def get_question(self):
-        parameters = json.loads(unquote(self.ident.identifier).split('?')[0])
-        choice_ids = parameters['choiceIds']
-        configurable_question = Question(osid_object_map=self._my_map['question'],
-                                         runtime=self._runtime)
-        configurable_question.set_choice_ids(choice_ids=choice_ids)
-        return configurable_question
+        question = Question(osid_object_map=self.my_osid_object._my_map['question'],
+                            runtime=self.my_osid_object._runtime,
+                            proxy=self.my_osid_object._proxy)
+        if self._magic_params is not None:
+            question.set_values(self._magic_params)
+        return question
 
     question = property(fget=get_question)
+
+    def set_params(self, params):
+        self._magic_params = params
+
+
+class MagicRandomizedMCItemFormRecord(osid_records.OsidRecord):
+    """form for QTI numeric response question"""
+    _implemented_record_type_identifiers = [
+        'magic-randomized-multiple-choice'
+    ]
+
+    def __init__(self, osid_object_form=None):
+        if osid_object_form is not None:
+            self.my_osid_object_form = osid_object_form
+        super(MagicRandomizedMCItemFormRecord, self).__init__()
 
 
 class MultiChoiceRandomizeChoicesQuestionFormRecord(MultiChoiceTextAndFilesQuestionFormRecord):
@@ -123,20 +147,31 @@ class MultiChoiceRandomizeChoicesQuestionRecord(MultiChoiceTextAndFilesQuestionR
 
     def get_id(self):
         """override get_id to generate our "magic" ids that encode choice order"""
-        orig_id = self.my_osid_object.ident
-        magic_identifier = '{0}?{1}'.format(orig_id.get_identifier(),
-                                            json.dumps(self.my_osid_object._my_map['choices']))
-        return Id(namespace=orig_id.namespace,
+        choices = self.my_osid_object._my_map['choices']
+        choice_ids = [c['id'] for c in choices]
+        magic_identifier = quote('{0}?{1}'.format(self.my_osid_object._my_map['_id'],
+                                                  json.dumps(choice_ids)))
+        return Id(namespace='assessment.Item',
                   identifier=magic_identifier,
-                  authority=orig_id.authority)
+                  authority='magic-randomize-choices-question-record')
+
+    ident = property(fget=get_id)
+    id_ = property(fget=get_id)
 
     def get_unrandomized_choices(self):
         if not self.my_osid_object._my_map['choices']:
             raise IllegalState()
-        return self.my_osid_object._my_map['choices']
+        return self._original_choice_order
 
-    def set_choices(self, choices):
-        """stub"""
+    def set_values(self, choice_ids):
+        """assume choice_ids is a list of choiceIds, like
+        ["57978959cdfc5c42eefb36d1", "57978959cdfc5c42eefb36d0",
+        "57978959cdfc5c42eefb36cf", "57978959cdfc5c42eefb36ce"]
+        """
         if not self.my_osid_object._my_map['choices']:
             raise IllegalState()
-        self.my_osid_object._my_map['choices'] = choices
+        organized_choices = []
+        for choice_id in choice_ids:
+            choice_obj = [c for c in self._original_choice_order if c['id'] == choice_id][0]
+            organized_choices.append(choice_obj)
+        self.my_osid_object._my_map['choices'] = organized_choices
