@@ -137,7 +137,7 @@ class MultiChoiceRandomizeChoicesQuestionRecord(MultiChoiceTextAndFilesQuestionR
     ]
 
     def __init__(self, osid_object):
-        self._original_choice_order = osid_object._my_map['choices']
+        self._original_choice_order = list(osid_object._my_map['choices'])
         super(MultiChoiceRandomizeChoicesQuestionRecord, self).__init__(osid_object)
         if not self.my_osid_object._my_map['choices']:
             raise IllegalState()
