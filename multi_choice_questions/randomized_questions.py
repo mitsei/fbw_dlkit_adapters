@@ -5,8 +5,15 @@ from bson import ObjectId
 from dlkit.mongo.assessment.objects import Item, Question
 from dlkit.mongo.assessment.sessions import ItemLookupSession
 from dlkit.mongo.utilities import MongoClientValidated
+from dlkit.mongo.osid.osid_errors import IllegalState
+from dlkit.mongo.primitives import Id
+
+from random import shuffle
 
 from urllib import unquote
+
+from ...assessment.basic.multi_choice_records import MultiChoiceTextAndFilesQuestionFormRecord,\
+    MultiChoiceTextAndFilesQuestionRecord
 
 
 class RandomizedMCItemLookupSession(ItemLookupSession):
@@ -84,3 +91,52 @@ class RandomizedMCItem(Item):
         return configurable_question
 
     question = property(fget=get_question)
+
+
+class MultiChoiceRandomizeChoicesQuestionFormRecord(MultiChoiceTextAndFilesQuestionFormRecord):
+    _implemented_record_type_identifiers = [
+        'randomize-choices'
+    ]
+
+    def __init__(self, osid_object_form):
+        if osid_object_form is not None:
+            self.my_osid_object_form = osid_object_form
+        self._init_metadata()
+        if not osid_object_form.is_for_update():
+            self._init_map()
+        super(MultiChoiceRandomizeChoicesQuestionFormRecord, self).__init__(osid_object_form)
+
+
+class MultiChoiceRandomizeChoicesQuestionRecord(MultiChoiceTextAndFilesQuestionRecord):
+    _implemented_record_type_identifiers = [
+        'randomize-choices'
+    ]
+
+    def __init__(self, osid_object):
+        self._original_choice_order = osid_object._my_map['choices']
+        super(MultiChoiceRandomizeChoicesQuestionRecord, self).__init__(osid_object)
+        if not self.my_osid_object._my_map['choices']:
+            raise IllegalState()
+        choices = self.my_osid_object._my_map['choices']
+        shuffle(choices)
+        self.my_osid_object._my_map['choices'] = choices
+
+    def get_id(self):
+        """override get_id to generate our "magic" ids that encode choice order"""
+        orig_id = self.my_osid_object.ident
+        magic_identifier = '{0}?{1}'.format(orig_id.get_identifier(),
+                                            json.dumps(self.my_osid_object._my_map['choices']))
+        return Id(namespace=orig_id.namespace,
+                  identifier=magic_identifier,
+                  authority=orig_id.authority)
+
+    def get_unrandomized_choices(self):
+        if not self.my_osid_object._my_map['choices']:
+            raise IllegalState()
+        return self.my_osid_object._my_map['choices']
+
+    def set_choices(self, choices):
+        """stub"""
+        if not self.my_osid_object._my_map['choices']:
+            raise IllegalState()
+        self.my_osid_object._my_map['choices'] = choices
