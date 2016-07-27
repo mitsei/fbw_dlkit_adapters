@@ -175,3 +175,7 @@ class MultiChoiceRandomizeChoicesQuestionRecord(MultiChoiceTextAndFilesQuestionR
             choice_obj = [c for c in self._original_choice_order if c['id'] == choice_id][0]
             organized_choices.append(choice_obj)
         self.my_osid_object._my_map['choices'] = organized_choices
+
+    def set_display_label(self, display_label):
+        """used to temporarily show a new name, like 1.1.1"""
+        self.my_osid_object._my_map['displayName']['text'] = str(display_label)
