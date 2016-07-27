@@ -7,7 +7,7 @@ from ..osid import registry as osid_registry
 ITEM_RECORD_TYPES = {
     'multi-choice-randomized': {
         'authority': 'ODL.MIT.EDU',
-        'namespace': 'question-record-type',
+        'namespace': 'item-record-type',
         'identifier': 'multi-choice-randomized',
         'display_name': 'Item with randomized choice order',
         'display_label': 'Item with randomized choice order',
