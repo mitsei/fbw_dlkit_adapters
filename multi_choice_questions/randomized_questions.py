@@ -62,12 +62,11 @@ class RandomizedMCItemLookupSession(ItemLookupSession):
         of the items it needs to deconstruct -- i.e. from the DLKit
         records implementation.
     """
+    def __init__(self, *args, **kwargs):
+        super(RandomizedMCItemLookupSession, self).__init__(*args, **kwargs)
 
     def get_item(self, item_id):
         authority = item_id.authority
-        ils = ItemLookupSession(runtime=self._runtime,
-                                proxy=self._proxy)
-        ils.use_federated_bank_view()
         if authority == 'magic-randomize-choices-question-record':
             # for now, this will not work with aliased IDs...
             magic_identifier = unquote(item_id.identifier)
@@ -76,11 +75,11 @@ class RandomizedMCItemLookupSession(ItemLookupSession):
             original_item_id = Id(identifier=original_identifier,
                                   namespace=item_id.namespace,
                                   authority=self._catalog.ident.authority)
-            orig_item = ils.get_item(original_item_id)
+            orig_item = ItemLookupSession.get_item(self, original_item_id)
             orig_item.set_params(choice_ids)
             return orig_item
         else:
-            return ils.get_item(item_id)
+            return ItemLookupSession.get_item(self, item_id)
 
 
 class MagicRandomizedMCItemRecord(ObjectInitRecord):
