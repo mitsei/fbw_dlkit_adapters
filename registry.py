@@ -4,6 +4,22 @@
 
 from ..osid import registry as osid_registry
 
+ASSESSMENT_PART_RECORD_TYPES = {
+    'scaffold-down': {
+        'authority': 'ODL.MIT.EDU',
+        'namespace': 'assessment-part-record-type',
+        'identifier': 'scaffold-down',
+        'display_name': 'Assessment Part that scaffolds down when given incorrect item responses',
+        'display_label': 'Assessment Part that scaffolds down when given incorrect item responses',
+        'description': 'Assessment Part that scaffolds down when given incorrect item responses',
+        'domain': 'assessment_authoring.AssessmentPart',
+        'module_path': 'records.fbw_dlkit_adapters.magic_parts.assessment_part_records',
+        'object_record_class_name': 'ScaffoldDownAssessmentPartRecord',
+        'form_record_class_name': 'ScaffoldDownAssessmentPartFormRecord'},
+}
+
+ASSESSMENT_PART_RECORD_TYPES.update(osid_registry.__dict__.get('OSID_OBJECT_RECORD_TYPES', {}))
+
 ITEM_RECORD_TYPES = {
     'multi-choice-randomized': {
         'authority': 'ODL.MIT.EDU',
