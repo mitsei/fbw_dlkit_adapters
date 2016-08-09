@@ -75,11 +75,11 @@ class RandomizedMCItemLookupSession(ItemLookupSession):
             original_item_id = Id(identifier=original_identifier,
                                   namespace=item_id.namespace,
                                   authority=self._catalog.ident.authority)
-            orig_item = super(RandomizedMCItemLookupSession, self).get_item(self, original_item_id)
+            orig_item = super(RandomizedMCItemLookupSession, self).get_item(original_item_id)
             orig_item.set_params(choice_ids)
             return orig_item
         else:
-            return super(RandomizedMCItemLookupSession, self).get_item(self, item_id)
+            return super(RandomizedMCItemLookupSession, self).get_item(item_id)
 
 
 class MagicRandomizedMCItemRecord(ObjectInitRecord):
