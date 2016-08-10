@@ -32,7 +32,7 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
     def __init__(self, *args, **kwargs):
         super(ScaffoldDownAssessmentPartRecord, self).__init__(*args, **kwargs)
         self._magic_identifier = None
-        self._assessment_section_id = None
+        self._assessment_section = None
 
     def get_id(self):
         """override get_id to generate our "magic" id that encodes scaffolding information"""
@@ -53,7 +53,7 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
     ident = property(fget=get_id)
     id_ = property(fget=get_id)
 
-    def initialize(self, magic_identifier, assessment_section_id):
+    def initialize(self, magic_identifier, assessment_section):
         """This method is to be called by a magic AssessmentPart lookup session.
         
         magic_identifier_part includes:
@@ -66,16 +66,13 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         pdb.set_trace()
         arg_map = json.loads(unquote(magic_identifier).split('?')[-1])
         self._magic_identifier = magic_identifier
-        self._assessment_section_id = assessment_section_id
+        self._assessment_section = assessment_section
         self.my_osid_object._my_map['maxLevels'] = arg_map['max_levels']
         self.my_osid_object._my_map['learningObjectiveIds'] = arg_map['objective_ids']
         self.my_osid_object._my_map['itemIndex'] = arg_map['item_index']
 
-        section = get_assessment_section(self._assessment_section_id,
-                                         runtime=self.my_osid_object._runtime,
-                                         proxy=self.my_osid_object._proxy)
         try:
-            self.my_osid_object._my_map['itemIds'] = [self.get_my_item_id_from_section(section)]
+            self.my_osid_object._my_map['itemIds'] = [self.get_my_item_id_from_section(assessment_section)]
         except IllegalState:
             self.load_item_for_objective()
 
@@ -95,7 +92,7 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
 
         # I'm not sure this works? If all sibling items are generated at once, then
         # won't all items with this LO be seen / in the section map?
-        seen_questions = get_assessment_section(self._assessment_section_id)._my_map['questions']
+        seen_questions = self._assessment_section._my_map['questions']
         seen_items = [question['itemId'] for question in seen_questions]
         unseen_item_id = None
         for item in item_list:
@@ -109,11 +106,10 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
 
     def has_children(self):
         """checks if child parts are currently available for this part"""
-        if self._assessment_section_id is not None:
+        if self._assessment_section is not None:
             import pdb
             pdb.set_trace()
-
-            section = get_assessment_section(self._assessment_section_id)
+            section = self._assessment_section
             item_id = self.get_my_item_id_from_section(section)
             try:
                 if not section._is_correct(item_id) and section._get_confused_learning_objective_ids(item_id):
@@ -146,7 +142,7 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
     def get_children(self):
         part_list = []
         for child_id in self.get_child_ids():
-            part = get_part_from_magic_part_lookup_session(self._assessment_section_id,
+            part = get_part_from_magic_part_lookup_session(self._assessment_section.ident,
                                                            child_id,
                                                            runtime=self.my_osid_object._runtime,
                                                            proxy=self.my_osid_object._proxy)
@@ -174,7 +170,7 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
 
     def get_scaffold_objective_ids(self):
         """Assumes that a scaffold objective id is available"""
-        section = get_assessment_section(self._assessment_section_id)
+        section = self._assessment_section
         item_id = self.get_my_item_id_from_section(section)
         return section._get_confused_learning_objective_ids(item_id)
 
@@ -450,9 +446,9 @@ class ScaffoldDownAssessmentPartFormRecord(abc_assessment_authoring_records.Asse
 class MagicAssessmentPartLookupSession(AssessmentPartLookupSession):
     """This magic session should be used for getting magic AssessmentParts"""
 
-    def __init__(self, assessment_section_id, *args, **kwargs):
+    def __init__(self, assessment_section, *args, **kwargs):
         super(MagicAssessmentPartLookupSession, self).__init__(*args, **kwargs)
-        self._my_assessment_section_id = assessment_section_id
+        self._my_assessment_section = assessment_section
 
     def get_assessment_part(self, assessment_part_id):
         authority = assessment_part_id.get_authority()
@@ -462,7 +458,7 @@ class MagicAssessmentPartLookupSession(AssessmentPartLookupSession):
             assessment_part = super(MagicAssessmentPartLookupSession, self).get_assessment_part(assessment_part_id=Id(authority=self._catalog.ident.authority,
                                                                                                                       namespace=assessment_part_id.get_identifier_namespace(),
                                                                                                                       identifier=orig_identifier))
-            assessment_part.initialize(assessment_part_id.identifier, self._my_assessment_section_id)
+            assessment_part.initialize(assessment_part_id.identifier, self._my_assessment_section)
         else:
             return super(MagicAssessmentPartLookupSession, self).get_assessment_part(assessment_part_id)
 
