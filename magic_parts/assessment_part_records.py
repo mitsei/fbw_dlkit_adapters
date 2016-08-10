@@ -10,7 +10,7 @@ from dlkit.mongo.id.objects import IdList
 from dlkit.mongo.osid import record_templates as osid_records
 from dlkit.mongo.osid.metadata import Metadata
 from dlkit.mongo.primitives import Id
-from dlkit.mongo.osid.osid_errors import IllegalState, InvalidArgument, NoAccess
+from dlkit.mongo.osid.osid_errors import IllegalState, InvalidArgument, NoAccess, NotFound
 from dlkit.mongo.assessment.assessment_utilities import get_assessment_section
 
 from ...osid.base_records import ObjectInitRecord
@@ -62,8 +62,6 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
             item_index = the index of this item in its parent part
         
         """
-        import pdb
-        pdb.set_trace()
         arg_map = json.loads(unquote(magic_identifier).split('?')[-1])
         self._magic_identifier = magic_identifier
         self._assessment_section = assessment_section
@@ -71,16 +69,17 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         self.my_osid_object._my_map['learningObjectiveIds'] = arg_map['objective_ids']
         self.my_osid_object._my_map['itemIndex'] = arg_map['item_index']
 
-        try:
-            self.my_osid_object._my_map['itemIds'] = [self.get_my_item_id_from_section(assessment_section)]
-        except IllegalState:
-            self.load_item_for_objective()
+        if self.my_osid_object._my_map['itemIds'] == ['']:
+            try:
+                self.my_osid_object._my_map['itemIds'] = [self.get_my_item_id_from_section(assessment_section)]
+            except IllegalState:
+                self.load_item_for_objective()
 
     def load_item_for_objective(self):
         """if this is the first time for this magic part, find an LO linked item"""
         mgr = self.my_osid_object._get_provider_manager('ASSESSMENT', local=True)
-        if self.my_osid_object._my_map['bankId']:
-            item_query_session = mgr.get_item_query_session_for_bank(Id(self.my_osid_object._my_map['bankId']),
+        if self.my_osid_object._my_map['itemBankId']:
+            item_query_session = mgr.get_item_query_session_for_bank(Id(self.my_osid_object._my_map['itemBankId']),
                                                                      proxy=self.my_osid_object._proxy)
         else:
             item_query_session = mgr.get_item_query_session(proxy=self.my_osid_object._proxy)
@@ -107,8 +106,6 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
     def has_children(self):
         """checks if child parts are currently available for this part"""
         if self._assessment_section is not None:
-            import pdb
-            pdb.set_trace()
             section = self._assessment_section
             item_id = self.get_my_item_id_from_section(section)
             try:
@@ -446,7 +443,7 @@ class ScaffoldDownAssessmentPartFormRecord(abc_assessment_authoring_records.Asse
 class MagicAssessmentPartLookupSession(AssessmentPartLookupSession):
     """This magic session should be used for getting magic AssessmentParts"""
 
-    def __init__(self, assessment_section, *args, **kwargs):
+    def __init__(self, assessment_section=None, *args, **kwargs):
         super(MagicAssessmentPartLookupSession, self).__init__(*args, **kwargs)
         self._my_assessment_section = assessment_section
 
@@ -459,11 +456,16 @@ class MagicAssessmentPartLookupSession(AssessmentPartLookupSession):
                                                                                                                       namespace=assessment_part_id.get_identifier_namespace(),
                                                                                                                       identifier=orig_identifier))
             assessment_part.initialize(assessment_part_id.identifier, self._my_assessment_section)
+            return assessment_part
         else:
             return super(MagicAssessmentPartLookupSession, self).get_assessment_part(assessment_part_id)
 
     def get_assessment_parts_by_ids(self, assessment_part_ids):
         part_list = []
         for assessment_part_id in assessment_part_ids:
-            part_list.append(self.get_assessment_part(assessment_part_id))
+            try:
+                part_list.append(self.get_assessment_part(assessment_part_id))
+            except NotFound:
+                # sequestered?
+                pass
         return AssessmentPartList(part_list, runtime=self._runtime, proxy=self._proxy)
