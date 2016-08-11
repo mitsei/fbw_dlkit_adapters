@@ -11,7 +11,6 @@ from dlkit.mongo.osid import record_templates as osid_records
 from dlkit.mongo.osid.metadata import Metadata
 from dlkit.mongo.primitives import Id
 from dlkit.mongo.osid.osid_errors import IllegalState, InvalidArgument, NoAccess, NotFound
-from dlkit.mongo.assessment.assessment_utilities import get_assessment_section
 
 from ...osid.base_records import ObjectInitRecord
 
@@ -69,7 +68,7 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         self.my_osid_object._my_map['learningObjectiveIds'] = arg_map['objective_ids']
         self.my_osid_object._my_map['itemIndex'] = arg_map['item_index']
 
-        if self.my_osid_object._my_map['itemIds'] == ['']:
+        if self.my_osid_object._my_map['learningObjectiveIds'] != ['']:
             try:
                 self.my_osid_object._my_map['itemIds'] = [self.get_my_item_id_from_section(assessment_section)]
             except IllegalState:
@@ -95,7 +94,7 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         seen_items = [question['itemId'] for question in seen_questions]
         unseen_item_id = None
         for item in item_list:
-            if item not in seen_items:
+            if str(item.ident) not in seen_items:
                 unseen_item_id = item.get_id()
                 break
         if unseen_item_id is not None:
@@ -106,13 +105,15 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
     def has_children(self):
         """checks if child parts are currently available for this part"""
         if self._assessment_section is not None:
-            section = self._assessment_section
-            item_id = self.get_my_item_id_from_section(section)
-            try:
-                if not section._is_correct(item_id) and section._get_confused_learning_objective_ids(item_id):
-                    return True
-            except IllegalState:
-                pass
+            if (self.my_osid_object._my_map['maxLevels'] is None or
+                    self.my_osid_object._my_map['maxLevels'] > 0):
+                try:
+                    section = self._assessment_section
+                    item_id = self.get_my_item_id_from_section(section)
+                    if not section._is_correct(item_id) and section._get_confused_learning_objective_ids(item_id):
+                        return True
+                except IllegalState:
+                    pass
         return False
 
     def get_child_ids(self):
@@ -122,8 +123,12 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
             orig_id = self.my_osid_object.get_id()
             authority = 'magic-part-authority'
             namespace = orig_id.get_identifier_namespace()
-            arg_map = {'max_levels': self.my_osid_object._my_map['maxLevels'] - 1,
-                       'objective_id': str(objective_id)}
+            if self.my_osid_object._my_map['maxLevels'] is None:
+                max_levels = None
+            else:
+                max_levels = self.my_osid_object._my_map['maxLevels'] - 1
+            arg_map = {'max_levels': max_levels,
+                       'objective_ids': [str(objective_id)]}
             orig_identifier = unquote(orig_id.get_identifier()).split('?')[0]
             child_ids = []
             for num in range(self.my_osid_object._my_map['maxWaypointItems']):
@@ -131,9 +136,11 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
                 magic_identifier_part = quote('{0}?{1}'.format(orig_identifier,
                                                                json.dumps(arg_map)))
                 child_ids.append(Id(authority=authority,
-                                    identifier_namespace=namespace,
+                                    namespace=namespace,
                                     identifier=magic_identifier_part))
-            return child_ids
+            return IdList(child_ids,
+                          runtime=self.my_osid_object._runtime,
+                          proxy=self.my_osid_object._runtime)
         raise IllegalState()
 
     def get_children(self):
@@ -439,6 +446,7 @@ class ScaffoldDownAssessmentPartFormRecord(abc_assessment_authoring_records.Asse
             raise NoAccess()
         self.my_osid_object_form._my_map['allowRepeatItems'] = \
             bool(self._allow_repeat_items_metadata['default_boolean_values'][0])
+
 
 class MagicAssessmentPartLookupSession(AssessmentPartLookupSession):
     """This magic session should be used for getting magic AssessmentParts"""
