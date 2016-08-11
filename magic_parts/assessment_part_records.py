@@ -2,6 +2,7 @@
 Defines records for assessment parts
 """
 import json
+from random import shuffle
 
 from dlkit.abstract_osid.assessment_authoring import record_templates as abc_assessment_authoring_records
 from dlkit.mongo.assessment_authoring.objects import AssessmentPartList
@@ -86,13 +87,15 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         item_query = item_query_session.get_item_query()
         for objective_id_str in self.my_osid_object._my_map['learningObjectiveIds']:
             item_query.match_learning_objective_id(Id(objective_id_str), True)
-        item_list = item_query_session.get_items_by_query(item_query)
+        item_list = list(item_query_session.get_items_by_query(item_query))
 
         # I'm not sure this works? If all sibling items are generated at once, then
         # won't all items with this LO be seen / in the section map?
         seen_questions = self._assessment_section._my_map['questions']
         seen_items = [question['itemId'] for question in seen_questions]
         unseen_item_id = None
+        # need to randomly shuffle this item_list
+        shuffle(item_list)
         for item in item_list:
             if str(item.ident) not in seen_items:
                 unseen_item_id = item.get_id()
