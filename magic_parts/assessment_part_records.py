@@ -2,6 +2,9 @@
 Defines records for assessment parts
 """
 import json
+
+from bson import ObjectId
+
 from random import shuffle
 
 from dlkit.abstract_osid.assessment_authoring import record_templates as abc_assessment_authoring_records
@@ -12,6 +15,7 @@ from dlkit.mongo.osid import record_templates as osid_records
 from dlkit.mongo.osid.metadata import Metadata
 from dlkit.mongo.primitives import Id
 from dlkit.mongo.osid.osid_errors import IllegalState, InvalidArgument, NoAccess, NotFound
+from dlkit.mongo.utilities import MongoClientValidated
 
 from ...osid.base_records import ObjectInitRecord
 
@@ -190,6 +194,14 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
                 return Id(question_map['questionId'])
         raise IllegalState('This Part currently has no Item in the Section')
 
+    def delete(self):
+        """need this because the MongoClientValidated cannot deal with the magic identifier"""
+        magic_identifier = unquote(self.get_id().identifier)
+        orig_identifier = magic_identifier.split('?')[0]
+        collection = MongoClientValidated('assessment_authoring',
+                                          collection='AssessmentPart',
+                                          runtime=self.my_osid_object._runtime)
+        collection.delete_one({'_id': ObjectId(orig_identifier)})
 
 class ScaffoldDownAssessmentPartFormRecord(abc_assessment_authoring_records.AssessmentPartFormRecord,
                                            osid_records.OsidRecord):
