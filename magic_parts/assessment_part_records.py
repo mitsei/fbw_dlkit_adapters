@@ -102,11 +102,10 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
                 break
         if unseen_item_id is not None:
             self.my_osid_object._my_map['itemIds'] = [str(unseen_item_id)]
+        elif self.my_osid_object._my_map['allowRepeatItems']:
+            self.my_osid_object._my_map['itemIds'] = [str(item_list[0].ident)]
         else:
-            if self.my_osid_object._my_map['allowRepeatItems']:
-                self.my_osid_object._my_map['itemIds'] = [str(item_list[0].ident)]
-            else:
-                self.my_osid_object._my_map['itemIds'] = ['']
+            self.my_osid_object._my_map['itemIds'] = ['']
 
     def has_children(self):
         """checks if child parts are currently available for this part"""
