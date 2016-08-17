@@ -17,6 +17,8 @@ from ...osid.base_records import ObjectInitRecord
 from ...assessment.basic.multi_choice_records import MultiChoiceTextAndFilesQuestionFormRecord,\
     MultiChoiceTextAndFilesQuestionRecord
 
+MAGIC_AUTHORITY = 'magic-randomize-choices-question-record'
+
 
 class RandomizedMCItemLookupSession(ItemLookupSession):
     """this session does "magic" unscrambling of MC question items with
@@ -149,8 +151,10 @@ class MultiChoiceRandomizeChoicesQuestionRecord(MultiChoiceTextAndFilesQuestionR
     def get_id(self):
         """override get_id to generate our "magic" ids that encode choice order"""
 
-        # Check first to make sure no one else has claimed authority on my object:
-        if self.my_osid_object._authority != 'magic-randomize-choices-question-record':
+        # Check first to make sure no one else has claimed authority on my object.
+        # This will likely occur when an AssessmentSection returns a Question
+        # During an AssessmentSession
+        if self.my_osid_object._authority != MAGIC_AUTHORITY:
             return Id(self.my_osid_object['itemId'])
 
         # If not, go ahead and build magic Id:
@@ -160,7 +164,7 @@ class MultiChoiceRandomizeChoicesQuestionRecord(MultiChoiceTextAndFilesQuestionR
                                                   json.dumps(choice_ids)))
         return Id(namespace='assessment.Item',
                   identifier=magic_identifier,
-                  authority='magic-randomize-choices-question-record')
+                  authority=MAGIC_AUTHORITY)
 
     ident = property(fget=get_id)
     id_ = property(fget=get_id)
