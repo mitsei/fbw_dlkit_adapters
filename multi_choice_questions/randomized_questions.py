@@ -155,7 +155,7 @@ class MultiChoiceRandomizeChoicesQuestionRecord(MultiChoiceTextAndFilesQuestionR
         # This will likely occur when an AssessmentSection returns a Question
         # During an AssessmentSession
         if self.my_osid_object._authority != MAGIC_AUTHORITY:
-            return Id(self.my_osid_object['itemId'])
+            raise AttributeError() # let my_osid_object deal with it
 
         # If not, go ahead and build magic Id:
         choices = self.my_osid_object._my_map['choices']
