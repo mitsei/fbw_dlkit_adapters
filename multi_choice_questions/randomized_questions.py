@@ -19,6 +19,7 @@ from ...assessment.basic.multi_choice_records import MultiChoiceTextAndFilesQues
 
 MAGIC_AUTHORITY = 'magic-randomize-choices-question-record'
 
+
 class RandomizedMCItemLookupSession(ItemLookupSession):
     """this session does "magic" unscrambling of MC question items with
         unique IDs, where the choice order has been specified in the ID.
@@ -144,6 +145,8 @@ class MultiChoiceRandomizeChoicesQuestionRecord(MultiChoiceTextAndFilesQuestionR
         choices = self.my_osid_object._my_map['choices']
         shuffle(choices)
         self.my_osid_object._my_map['choices'] = choices
+        # Claim authority on this object, until someone else does:
+        self.my_osid_object._authority = 'magic-randomize-choices-question-record'
 
     def get_id(self):
         """override get_id to generate our "magic" ids that encode choice order"""

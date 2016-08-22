@@ -23,8 +23,8 @@ from ...osid.base_records import ObjectInitRecord
 from urllib import quote, unquote
 
 
-def get_part_from_magic_part_lookup_session(section_id, part_id, *args, **kwargs):
-    mpls = MagicAssessmentPartLookupSession(section_id, part_id, *args, **kwargs)
+def get_part_from_magic_part_lookup_session(section, part_id, *args, **kwargs):
+    mpls = MagicAssessmentPartLookupSession(section, *args, **kwargs)
     return mpls.get_assessment_part(part_id)
 
 
@@ -155,7 +155,7 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
     def get_children(self):
         part_list = []
         for child_id in self.get_child_ids():
-            part = get_part_from_magic_part_lookup_session(self._assessment_section.ident,
+            part = get_part_from_magic_part_lookup_session(self._assessment_section,
                                                            child_id,
                                                            runtime=self.my_osid_object._runtime,
                                                            proxy=self.my_osid_object._proxy)
