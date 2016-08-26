@@ -4,8 +4,8 @@ Defines records for assessment parts
 import json
 
 from bson import ObjectId
-
 from random import shuffle
+from urllib import quote, unquote
 
 from dlkit.abstract_osid.assessment_authoring import record_templates as abc_assessment_authoring_records
 from dlkit.mongo.assessment_authoring.objects import AssessmentPartList
@@ -19,8 +19,8 @@ from dlkit.mongo.utilities import MongoClientValidated
 
 from ...osid.base_records import ObjectInitRecord
 
-
-from urllib import quote, unquote
+MAGIC_PART_AUTHORITY = 'magic-part-authority'
+ENDLESS = 10000 # For seemingly endless waypoints
 
 
 def get_part_from_magic_part_lookup_session(section, part_id, *args, **kwargs):
@@ -37,22 +37,24 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         super(ScaffoldDownAssessmentPartRecord, self).__init__(*args, **kwargs)
         self._magic_identifier = None
         self._assessment_section = None
+        self._level = 0
 
     def get_id(self):
         """override get_id to generate our "magic" id that encodes scaffolding information"""
-        item_index = 0
-        if 'itemIndex' in self.my_osid_object._my_map:
-            item_index = self.my_osid_object._my_map['itemIndex']
+        waypoint_index = 0
+        if 'waypointIndex' in self.my_osid_object._my_map:
+            waypoint_index = self.my_osid_object._my_map['waypointIndex']
         magic_identifier = {
-            'max_levels': self.my_osid_object._my_map['maxLevels'],
+            'level': self._level,
             'objective_ids': self.my_osid_object._my_map['learningObjectiveIds'],
-            'item_index': item_index
+            'waypointIndex': waypoint_index
         }
+
         identifier = quote('{0}?{1}'.format(str(self.my_osid_object._my_map['_id']),
                                             json.dumps(magic_identifier)))
         return Id(namespace='assessment_authoring.AssessmentPart',
                   identifier=identifier,
-                  authority='magic-part-authority')
+                  authority=MAGIC_PART_AUTHORITY)
 
     ident = property(fget=get_id)
     id_ = property(fget=get_id)
@@ -63,15 +65,18 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         magic_identifier_part includes:
             max_levels = how many levels are left
             objective_id = the Objective Id to for which to select an item
-            item_index = the index of this item in its parent part
+            waypoint_index = the index of this item in its parent part
         
         """
         arg_map = json.loads(unquote(magic_identifier).split('?')[-1])
         self._magic_identifier = magic_identifier
         self._assessment_section = assessment_section
-        self.my_osid_object._my_map['maxLevels'] = arg_map['max_levels']
+        if 'level' in arg_map:
+            self._level = arg_map['level']
+        else:
+            self._level = 0
         self.my_osid_object._my_map['learningObjectiveIds'] = arg_map['objective_ids']
-        self.my_osid_object._my_map['itemIndex'] = arg_map['item_index']
+        self.my_osid_object._my_map['waypointIndex'] = arg_map['waypoint_index']
 
         if self.my_osid_object._my_map['learningObjectiveIds'] != ['']:
             try:
@@ -115,7 +120,7 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         """checks if child parts are currently available for this part"""
         if self._assessment_section is not None:
             if (self.my_osid_object._my_map['maxLevels'] is None or
-                    self.my_osid_object._my_map['maxLevels'] > 0):
+                    self.my_osid_object._my_map['maxLevels'] > self._level):
                 try:
                     section = self._assessment_section
                     item_id = self.get_my_item_id_from_section(section)
@@ -127,59 +132,100 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
 
     def get_child_ids(self):
         """creates max_waypoint_items number of new child parts"""
+
+        def quota_achieved(self, child_id):
+            """keep track of number items correct and compare with waypoint quota"""
+            if self.has_waypoint_quota():
+                question_ids = self._assessment_section._get_question_ids_for_assessment_part(child_id)
+                if not question_ids:
+                    return False
+                question_id = question_ids[0] # There is only one expected, but this might change
+                try:
+                    if self._assessment_section._is_correct(question_id):
+                        num_correct += 1
+                except IllegalState:
+                    pass
+                if num_correct == self._my_map['waypointQuota']:
+                    return True
+            return False
+
         if self.has_children():
             objective_id = self.get_scaffold_objective_ids().next() # Assume just one for now
-            orig_id = self.my_osid_object.get_id()
-            authority = 'magic-part-authority'
-            namespace = orig_id.get_identifier_namespace()
-            if self.my_osid_object._my_map['maxLevels'] is None:
-                max_levels = None
-            else:
-                max_levels = self.my_osid_object._my_map['maxLevels'] - 1
-            arg_map = {'max_levels': max_levels,
+            namespace = 'assessment_authoring.AssessmentPart'
+            level = self._level + 1
+            arg_map = {'level': level,
                        'objective_ids': [str(objective_id)]}
             orig_identifier = unquote(orig_id.get_identifier()).split('?')[0]
             child_ids = []
-            for num in range(self.my_osid_object._my_map['maxWaypointItems']):
-                arg_map['item_index'] = num
+            num_correct = 0
+            child_known_to_section = None
+            max_waypoints = self.my_osid_object._my_map['maxWaypointItems']
+            if max_waypoints is None:
+                max_waypoints = ENDLESS
+            for num in range(max_waypoints):
+                arg_map['waypoint_index'] = num
                 magic_identifier_part = quote('{0}?{1}'.format(orig_identifier,
                                                                json.dumps(arg_map)))
-                child_ids.append(Id(authority=authority,
-                                    namespace=namespace,
-                                    identifier=magic_identifier_part))
+                child_id = Id(authority=MAGIC_PART_AUTHORITY,
+                              namespace=namespace,
+                              dentifier=magic_identifier_part))
+                child_ids.append(child_id)
+                if str(child_id) in self.my_osid_object._my_map['assessmentParts']:
+                    child_known_to_section = True
+                else:
+                    child_known_to_section = False
+                if child_known_to_section and self.quota_achieved(child_id):
+                    break
+                if not child_known_to_section:
+                    break
             return IdList(child_ids,
                           runtime=self.my_osid_object._runtime,
                           proxy=self.my_osid_object._runtime)
         raise IllegalState()
 
     def get_children(self):
+        """return the current child parts of this assessment part"""
         part_list = []
         for child_id in self.get_child_ids():
             part = get_part_from_magic_part_lookup_session(self._assessment_section,
                                                            child_id,
                                                            runtime=self.my_osid_object._runtime,
                                                            proxy=self.my_osid_object._proxy)
-            # it is expected that the magic_part_lookup_session will call part.initialize()
+            # The magic_part_lookup_session will call part.initialize()
             part_list.append(part)
         return AssessmentPartList(part_list,
                                   runtime=self.my_osid_object._runtime,
                                   proxy=self.my_osid_object._proxy)
 
     def has_item_ids(self):
+        """does this part have any item ids associated with it"""
         return bool(self.my_osid_object._my_map['itemIds'])
 
     def get_item_ids(self):
+        """get item ids associated with this assessment part"""
         if self.has_item_ids():
             return IdList(self.my_osid_object._my_map['itemIds'],
                           runtime=self.my_osid_object._runtime,
                           proxy=self.my_osid_object._proxy)
         raise IllegalState()
 
-    @property
-    def learning_objective_ids(self):
+    def get_learning_objective_ids(self):
+        """gets all LO ids associated with this assessment part (should be only one for now)"""
         return IdList(self.my_osid_object._my_map['learningObjectiveIds'],
                       runtime=self.my_osid_object._runtime,
                       proxy=self.my_osid_object._proxy)
+
+    learning_objective_ids = property(fget=get_learning_objective_ids)
+
+    def has_waypoint_quota(self):
+        """is a quoata on the number of required correct waypoint answers available"""
+        return bool(self.my_osid_object._my_map['waypointQuota'])
+
+    def get_waypoint_quota(self):
+        """get the correct answer quota for this waypoint"""
+        return self.my_osid_object._my_map['waypointQuota']
+
+    waypoint_quota = property(fget=get_waypoint_quota)
 
     def get_scaffold_objective_ids(self):
         """Assumes that a scaffold objective id is available"""
@@ -280,6 +326,22 @@ class ScaffoldDownAssessmentPartFormRecord(abc_assessment_authoring_records.Asse
             'maximum_cardinal': None,
             'cardinal_set': []
         }
+        self._waypoint_quota_metadata = {
+            'element_id': Id(self.my_osid_object_form._authority,
+                             self.my_osid_object_form._namespace,
+                             'waypoint-quota'),
+            'element_label': 'Waypoint Quota',
+            'instructions': 'accepts an integer value',
+            'required': True,
+            'read_only': False,
+            'linked': False,
+            'array': False,
+            'default_cardinal_values': [None],
+            'syntax': 'CARDINAL',
+            'minimum_cardinal': 0,
+            'maximum_cardinal': None,
+            'cardinal_set': []
+        }
         self._item_bank_id_metadata = {
             'element_id': Id(self.my_osid_object_form._authority,
                              self.my_osid_object_form._namespace,
@@ -319,6 +381,8 @@ class ScaffoldDownAssessmentPartFormRecord(abc_assessment_authoring_records.Asse
             self._max_levels_metadata['default_cardinal_values'][0]
         self.my_osid_object_form._my_map['maxWaypointItems'] = \
             self._max_waypoint_items_metadata['default_cardinal_values'][0]
+        self.my_osid_object_form._my_map['waypointQuota'] = \
+            self._waypoint_quota_metadata['default_cardinal_values'][0]
         self.my_osid_object_form._my_map['itemBankId'] = \
             self._item_bank_id_metadata['default_id_values'][0]
         self.my_osid_object_form._my_map['allowRepeatItems'] = \
@@ -421,6 +485,27 @@ class ScaffoldDownAssessmentPartFormRecord(abc_assessment_authoring_records.Asse
         self.my_osid_object_form._my_map['maxWaypointItems'] = \
             self.get_max_waypoint_items_metadata().get_default_cardinal_values()[0]
 
+    def get_waypoint_quota_metadata(self):
+        """get the metadata for waypoint quota"""
+        metadata = dict(self._waypoint_quota_metadata)
+        metadata.update({'existing_cardinal_values': self.my_osid_object_form._my_map['waypointQtems']})
+        return Metadata(**metadata)
+
+    def set_waypoint_quota(self, waypoint_quota):
+        """how many waypoint questions need to be answered correctly"""
+        if self.get_waypoint_quota_metadata().is_read_only():
+            raise NoAccess()
+        if not self.my_osid_object_form._is_valid_cardinal(waypoint_quota):
+            raise InvalidArgument()
+        self.my_osid_object_form._my_map['waypointQtems'] = waypoint_quota
+
+    def clear_waypoint_quota(self):
+        if (self.get_waypoint_quota_metadata().is_read_only() or
+                self.get_waypoint_quota_metadata().is_required()):
+            raise NoAccess()
+        self.my_osid_object_form._my_map['waypointQuota'] = \
+            self.get_waypoint_quota_metadata().get_default_cardinal_values()[0]
+
     def get_item_bank_id_metadata(self):
         """get the metadata for item bank"""
         metadata = dict(self._item_bank_id_metadata)
@@ -474,7 +559,7 @@ class MagicAssessmentPartLookupSession(AssessmentPartLookupSession):
 
     def get_assessment_part(self, assessment_part_id):
         authority = assessment_part_id.get_authority()
-        if authority == 'magic-part-authority':
+        if authority == MAGIC_PART_AUTHORITY:
             magic_identifier = unquote(assessment_part_id.identifier)
             orig_identifier = magic_identifier.split('?')[0]
             assessment_part = super(MagicAssessmentPartLookupSession, self).get_assessment_part(assessment_part_id=Id(authority=self._catalog.ident.authority,
