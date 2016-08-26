@@ -69,7 +69,7 @@ class RandomizedMCItemLookupSession(ItemLookupSession):
 
     def get_item(self, item_id):
         authority = item_id.authority
-        if authority == 'magic-randomize-choices-question-record':
+        if authority == MAGIC_AUTHORITY:
             # for now, this will not work with aliased IDs...
             magic_identifier = unquote(item_id.identifier)
             original_identifier = magic_identifier.split('?')[0]
@@ -146,7 +146,7 @@ class MultiChoiceRandomizeChoicesQuestionRecord(MultiChoiceTextAndFilesQuestionR
         shuffle(choices)
         self.my_osid_object._my_map['choices'] = choices
         # Claim authority on this object, until someone else does:
-        self.my_osid_object._authority = 'magic-randomize-choices-question-record'
+        self.my_osid_object._authority = MAGIC_AUTHORITY
 
     def get_id(self):
         """override get_id to generate our "magic" ids that encode choice order"""
@@ -155,7 +155,8 @@ class MultiChoiceRandomizeChoicesQuestionRecord(MultiChoiceTextAndFilesQuestionR
         # This will likely occur when an AssessmentSection returns a Question
         # During an AssessmentSession
         if self.my_osid_object._authority != MAGIC_AUTHORITY:
-            raise AttributeError() # let my_osid_object deal with it
+            return self.my_osid_object._item_id
+            # raise AttributeError
 
         # If not, go ahead and build magic Id:
         choices = self.my_osid_object._my_map['choices']
