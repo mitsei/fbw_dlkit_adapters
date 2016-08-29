@@ -146,7 +146,7 @@ class MultiChoiceRandomizeChoicesQuestionRecord(MultiChoiceTextAndFilesQuestionR
         shuffle(choices)
         self.my_osid_object._my_map['choices'] = choices
         # Claim authority on this object, until someone else does:
-        self.my_osid_object._authority = 'magic-randomize-choices-question-record'
+        self.my_osid_object._authority = MAGIC_AUTHORITY
 
     def get_id(self):
         """override get_id to generate our "magic" ids that encode choice order"""
