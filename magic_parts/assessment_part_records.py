@@ -480,6 +480,8 @@ class MagicAssessmentPartLookupSession(AssessmentPartLookupSession):
             assessment_part = super(MagicAssessmentPartLookupSession, self).get_assessment_part(assessment_part_id=Id(authority=self._catalog.ident.authority,
                                                                                                                       namespace=assessment_part_id.get_identifier_namespace(),
                                                                                                                       identifier=orig_identifier))
+            # should a magic assessment part's parent be the original part?
+            # Or that original part's parent?
             assessment_part.initialize(assessment_part_id.identifier, self._my_assessment_section)
             return assessment_part
         else:
