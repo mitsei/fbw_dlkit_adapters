@@ -162,6 +162,7 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
             arg_map = {'level': level,
                        'objective_ids': [str(objective_id)]}
             orig_identifier = unquote(orig_id.get_identifier()).split('?')[0]
+
             child_ids = []
             child_known_to_section = None
             max_waypoints = self.my_osid_object._my_map['maxWaypointItems']
