@@ -22,6 +22,10 @@ from ...osid.base_records import ObjectInitRecord
 MAGIC_PART_AUTHORITY = 'magic-part-authority'
 ENDLESS = 10000 # For seemingly endless waypoints
 
+class QuotaCounter(object):
+    # http://stackoverflow.com/questions/4020419/why-arent-python-nested-functions-called-closures
+    pass
+
 
 def get_part_from_magic_part_lookup_session(section, part_id, *args, **kwargs):
     mpls = MagicAssessmentPartLookupSession(section, *args, **kwargs)
@@ -47,7 +51,7 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         magic_identifier = {
             'level': self._level,
             'objective_ids': self.my_osid_object._my_map['learningObjectiveIds'],
-            'waypointIndex': waypoint_index
+            'waypoint_index': waypoint_index
         }
 
         identifier = quote('{0}?{1}'.format(str(self.my_osid_object._my_map['_id']),
@@ -132,32 +136,33 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
 
     def get_child_ids(self):
         """creates max_waypoint_items number of new child parts"""
-
-        def quota_achieved(self, child_id):
+        quota_counter = QuotaCounter()
+        quota_counter.num_correct = 0
+        def quota_achieved(child_id_to_check):
             """keep track of number items correct and compare with waypoint quota"""
             if self.has_waypoint_quota():
-                question_ids = self._assessment_section._get_question_ids_for_assessment_part(child_id)
+                question_ids = self._assessment_section._get_question_ids_for_assessment_part(child_id_to_check)
                 if not question_ids:
                     return False
-                question_id = question_ids[0] # There is only one expected, but this might change
+                question_id = question_ids[0]  # There is only one expected, but this might change
                 try:
                     if self._assessment_section._is_correct(question_id):
-                        num_correct += 1
+                        quota_counter.num_correct += 1
                 except IllegalState:
                     pass
-                if num_correct == self._my_map['waypointQuota']:
+                if quota_counter.num_correct == self.my_osid_object._my_map['waypointQuota']:
                     return True
             return False
 
         if self.has_children():
             objective_id = self.get_scaffold_objective_ids().next() # Assume just one for now
+            orig_id = self.my_osid_object.get_id()
             namespace = 'assessment_authoring.AssessmentPart'
             level = self._level + 1
             arg_map = {'level': level,
                        'objective_ids': [str(objective_id)]}
             orig_identifier = unquote(orig_id.get_identifier()).split('?')[0]
             child_ids = []
-            num_correct = 0
             child_known_to_section = None
             max_waypoints = self.my_osid_object._my_map['maxWaypointItems']
             if max_waypoints is None:
@@ -168,13 +173,14 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
                                                                json.dumps(arg_map)))
                 child_id = Id(authority=MAGIC_PART_AUTHORITY,
                               namespace=namespace,
-                              dentifier=magic_identifier_part))
+                              identifier=magic_identifier_part)
                 child_ids.append(child_id)
-                if str(child_id) in self.my_osid_object._my_map['assessmentParts']:
+                section_part_ids = [str(p['assessmentPartId']) for p in self._assessment_section._my_map['assessmentParts']]
+                if str(child_id) in section_part_ids:
                     child_known_to_section = True
                 else:
                     child_known_to_section = False
-                if child_known_to_section and self.quota_achieved(child_id):
+                if child_known_to_section and quota_achieved(child_id):
                     break
                 if not child_known_to_section:
                     break
