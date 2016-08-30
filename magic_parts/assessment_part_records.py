@@ -41,6 +41,7 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         super(ScaffoldDownAssessmentPartRecord, self).__init__(*args, **kwargs)
         self._magic_identifier = None
         self._assessment_section = None
+        self._magic_parent_id = None
         self._level = 0
 
     def get_id(self):
@@ -49,6 +50,7 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         if 'waypointIndex' in self.my_osid_object._my_map:
             waypoint_index = self.my_osid_object._my_map['waypointIndex']
         magic_identifier = {
+            'parent_id': str(self._magic_parent_id)
             'level': self._level,
             'objective_ids': self.my_osid_object._my_map['learningObjectiveIds'],
             'waypoint_index': waypoint_index
@@ -67,7 +69,8 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         """This method is to be called by a magic AssessmentPart lookup session.
         
         magic_identifier_part includes:
-            max_levels = how many levels are left
+            parent_id = id string of the parent part that created this part
+            level = how many levels deep
             objective_id = the Objective Id to for which to select an item
             waypoint_index = the index of this item in its parent part
         
@@ -79,6 +82,7 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
             self._level = arg_map['level']
         else:
             self._level = 0
+        self._magic_parent_id = Id(arg_map['parent_id'])
         self.my_osid_object._my_map['learningObjectiveIds'] = arg_map['objective_ids']
         self.my_osid_object._my_map['waypointIndex'] = arg_map['waypoint_index']
 
@@ -101,7 +105,6 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         for objective_id_str in self.my_osid_object._my_map['learningObjectiveIds']:
             item_query.match_learning_objective_id(Id(objective_id_str), True)
         item_list = list(item_query_session.get_items_by_query(item_query))
-
         # I'm not sure this works? If all sibling items are generated at once, then
         # won't all items with this LO be seen / in the section map?
         seen_questions = self._assessment_section._my_map['questions']
@@ -159,7 +162,8 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
             orig_id = self.my_osid_object.get_id()
             namespace = 'assessment_authoring.AssessmentPart'
             level = self._level + 1
-            arg_map = {'level': level,
+            arg_map = {'parent_id': str(self.my_osid_object.get_id()),
+                       'level': level,
                        'objective_ids': [str(objective_id)]}
             orig_identifier = unquote(orig_id.get_identifier()).split('?')[0]
 
@@ -255,6 +259,16 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
                                           collection='AssessmentPart',
                                           runtime=self.my_osid_object._runtime)
         collection.delete_one({'_id': ObjectId(orig_identifier)})
+
+    def has_parent_part(self):
+        if self._magic_parent_idsrt is None:
+            raise AttributeError() # let my_osid_object handle it
+        return True
+
+    def get_assessment_part_id(self):
+        if self._magic_parent_idsrt is None:
+            raise AttributeError() # let my_osid_object handle it
+        return self._magic_parent_id
 
 class ScaffoldDownAssessmentPartFormRecord(abc_assessment_authoring_records.AssessmentPartFormRecord,
                                            osid_records.OsidRecord):
