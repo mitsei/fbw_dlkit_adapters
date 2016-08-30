@@ -51,14 +51,15 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         if 'waypointIndex' in self.my_osid_object._my_map:
             waypoint_index = self.my_osid_object._my_map['waypointIndex']
         magic_identifier = {
-            'parent_id': str(self._magic_parent_id),
             'level': self._level,
             'objective_ids': self.my_osid_object._my_map['learningObjectiveIds'],
             'waypoint_index': waypoint_index
         }
+        if self._magic_parent_id is not None:
+            magic_identifier['parent_id'] = str(self._magic_parent_id)
 
         identifier = quote('{0}?{1}'.format(str(self.my_osid_object._my_map['_id']),
-                                            json.dumps(magic_identifier, object_pair_hook=OrderedDict)))
+                                            json.dumps(magic_identifier)))
         return Id(namespace='assessment_authoring.AssessmentPart',
                   identifier=identifier,
                   authority=MAGIC_PART_AUTHORITY)
@@ -83,7 +84,8 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
             self._level = arg_map['level']
         else:
             self._level = 0
-        self._magic_parent_id = Id(arg_map['parent_id'])
+        if 'parent_id' in arg_map:
+            self._magic_parent_id = Id(arg_map['parent_id'])
         self.my_osid_object._my_map['learningObjectiveIds'] = arg_map['objective_ids']
         self.my_osid_object._my_map['waypointIndex'] = arg_map['waypoint_index']
 
@@ -263,13 +265,13 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
 
     def has_parent_part(self):
         if self._magic_parent_id is None:
-            # raise AttributeError() # let my_osid_object handle it
-            return False
+            # let my_osid_object handle it
+            return bool(self.my_osid_object._my_map['assessmentPartId'])
         return True
 
     def get_assessment_part_id(self):
         if self._magic_parent_id is None:
-            return False
+            return Id(self.my_osid_object._my_map['assessmentPartId'])
             # raise AttributeError() # let my_osid_object handle it
         return self._magic_parent_id
 
@@ -594,6 +596,9 @@ class MagicAssessmentPartLookupSession(AssessmentPartLookupSession):
             assessment_part.initialize(assessment_part_id.identifier, self._my_assessment_section)
             return assessment_part
         else:
+            if assessment_part_id.identifier == 'None':
+                import pdb
+                pdb.set_trace()
             return super(MagicAssessmentPartLookupSession, self).get_assessment_part(assessment_part_id)
 
     def get_assessment_parts_by_ids(self, assessment_part_ids):
