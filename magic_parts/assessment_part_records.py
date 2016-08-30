@@ -4,6 +4,7 @@ Defines records for assessment parts
 import json
 
 from bson import ObjectId
+from collections import OrderedDict
 from random import shuffle
 from urllib import quote, unquote
 
@@ -50,14 +51,14 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         if 'waypointIndex' in self.my_osid_object._my_map:
             waypoint_index = self.my_osid_object._my_map['waypointIndex']
         magic_identifier = {
-            'parent_id': str(self._magic_parent_id)
+            'parent_id': str(self._magic_parent_id),
             'level': self._level,
             'objective_ids': self.my_osid_object._my_map['learningObjectiveIds'],
             'waypoint_index': waypoint_index
         }
 
         identifier = quote('{0}?{1}'.format(str(self.my_osid_object._my_map['_id']),
-                                            json.dumps(magic_identifier)))
+                                            json.dumps(magic_identifier, object_pair_hook=OrderedDict)))
         return Id(namespace='assessment_authoring.AssessmentPart',
                   identifier=identifier,
                   authority=MAGIC_PART_AUTHORITY)
@@ -75,7 +76,7 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
             waypoint_index = the index of this item in its parent part
         
         """
-        arg_map = json.loads(unquote(magic_identifier).split('?')[-1])
+        arg_map = json.loads(unquote(magic_identifier).split('?')[-1], object_pairs_hook=OrderedDict)
         self._magic_identifier = magic_identifier
         self._assessment_section = assessment_section
         if 'level' in arg_map:
@@ -261,13 +262,15 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         collection.delete_one({'_id': ObjectId(orig_identifier)})
 
     def has_parent_part(self):
-        if self._magic_parent_idsrt is None:
-            raise AttributeError() # let my_osid_object handle it
+        if self._magic_parent_id is None:
+            # raise AttributeError() # let my_osid_object handle it
+            return False
         return True
 
     def get_assessment_part_id(self):
-        if self._magic_parent_idsrt is None:
-            raise AttributeError() # let my_osid_object handle it
+        if self._magic_parent_id is None:
+            return False
+            # raise AttributeError() # let my_osid_object handle it
         return self._magic_parent_id
 
 class ScaffoldDownAssessmentPartFormRecord(abc_assessment_authoring_records.AssessmentPartFormRecord,
