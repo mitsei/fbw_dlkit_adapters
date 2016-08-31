@@ -27,6 +27,9 @@ class QuotaCounter(object):
     # http://stackoverflow.com/questions/4020419/why-arent-python-nested-functions-called-closures
     pass
 
+class UnansweredQuestionCounter(object):
+    pass
+
 
 def get_part_from_magic_part_lookup_session(section, part_id, *args, **kwargs):
     mpls = MagicAssessmentPartLookupSession(section, *args, **kwargs)
@@ -144,13 +147,22 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         """creates max_waypoint_items number of new child parts"""
         quota_counter = QuotaCounter()
         quota_counter.num_correct = 0
+
+        unanswered_question_counter = UnansweredQuestionCounter()
+        unanswered_question_counter.num_unanswered = 0
+
+        def get_part_question_id(part_id_to_check):
+            question_ids = self._assessment_section._get_question_ids_for_assessment_part(part_id_to_check)
+            if not question_ids:
+                return None
+            return question_ids[0]  # There is only one expected, but this might change
+
         def quota_achieved(child_id_to_check):
             """keep track of number items correct and compare with waypoint quota"""
             if self.has_waypoint_quota():
-                question_ids = self._assessment_section._get_question_ids_for_assessment_part(child_id_to_check)
-                if not question_ids:
+                question_id = get_part_question_id(child_id_to_check)
+                if question_id is None:
                     return False
-                question_id = question_ids[0]  # There is only one expected, but this might change
                 try:
                     if self._assessment_section._is_correct(question_id):
                         quota_counter.num_correct += 1
@@ -160,38 +172,69 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
                     return True
             return False
 
-        if self.has_children():
-            objective_id = self.get_scaffold_objective_ids().next() # Assume just one for now
-            orig_id = self.my_osid_object.get_id()
-            namespace = 'assessment_authoring.AssessmentPart'
-            level = self._level + 1
-            arg_map = {'parent_id': str(self.my_osid_object.get_id()),
-                       'level': level,
-                       'objective_ids': [str(objective_id)]}
-            orig_identifier = unquote(orig_id.get_identifier()).split('?')[0]
+        def one_unanswered_question_in_children_already_exists(child_id_to_check):
+            """keep track of unanswered children questions. Only permit 1"""
+            question_id = get_part_question_id(child_id_to_check)
+            if question_id is None:
+                return False
+            try:
+                if not self._assessment_section._is_question_answered(question_id):
+                    unanswered_question_counter.num_unanswered += 1
+            except IllegalState:
+                pass
+            if unanswered_question_counter.num_unanswered == 1:
+                return True
+            else:
+                return False
 
+        if self.has_children():
             child_ids = []
-            child_known_to_section = None
-            max_waypoints = self.my_osid_object._my_map['maxWaypointItems']
-            if max_waypoints is None:
-                max_waypoints = ENDLESS
-            for num in range(max_waypoints):
-                arg_map['waypoint_index'] = num
-                magic_identifier_part = quote('{0}?{1}'.format(orig_identifier,
-                                                               json.dumps(arg_map)))
-                child_id = Id(authority=MAGIC_PART_AUTHORITY,
-                              namespace=namespace,
-                              identifier=magic_identifier_part)
-                child_ids.append(child_id)
-                section_part_ids = [str(p['assessmentPartId']) for p in self._assessment_section._my_map['assessmentParts']]
-                if str(child_id) in section_part_ids:
-                    child_known_to_section = True
-                else:
-                    child_known_to_section = False
-                if child_known_to_section and quota_achieved(child_id):
-                    break
-                if not child_known_to_section:
-                    break
+
+            # correct answers may not generate an objective at all
+            # and they should not generate children
+            scaffold_objective_ids = self.get_scaffold_objective_ids()
+            if scaffold_objective_ids.available() > 0:
+                objective_id = scaffold_objective_ids.next() # Assume just one for now
+                orig_id = self.my_osid_object.get_id()
+                namespace = 'assessment_authoring.AssessmentPart'
+                level = self._level + 1
+                arg_map = {'parent_id': str(self.my_osid_object.get_id()),
+                           'level': level,
+                           'objective_ids': [str(objective_id)]}
+                orig_identifier = unquote(orig_id.get_identifier()).split('?')[0]
+
+                child_known_to_section = None
+                max_waypoints = self.my_osid_object._my_map['maxWaypointItems']
+                if max_waypoints is None:
+                    max_waypoints = ENDLESS
+                for num in range(max_waypoints):
+                    arg_map['waypoint_index'] = num
+                    magic_identifier_part = quote('{0}?{1}'.format(orig_identifier,
+                                                                   json.dumps(arg_map)))
+                    child_id = Id(authority=MAGIC_PART_AUTHORITY,
+                                  namespace=namespace,
+                                  identifier=magic_identifier_part)
+                    child_ids.append(child_id)
+                    section_part_ids = [p['assessmentPartId'] for p in self._assessment_section._my_map['assessmentParts']]
+                    if str(child_id) in section_part_ids:
+                        child_known_to_section = True
+                    else:
+                        child_known_to_section = False
+                    # the problem with only checking quota_achieved is that each time this is called,
+                    # it will generate another waypoint i.e. if 1.1. is wrong, then 1.2 -> 1.2, 1.3 -> 1.2, 1.3, 1.4
+                    # because you haven't achieved the "right number" quota.
+                    # However, the behavior we want is that we get only 1 more new question
+                    # depending on if the previous one was answered or not -- so there
+                    # should be another parameter to check, like
+                    # "quota_achieved or one_unanswered_question_in_children_already_exists"
+                    if (child_known_to_section and
+                            (quota_achieved(child_id) or
+                             one_unanswered_question_in_children_already_exists(child_id))):
+                        break
+                    if not child_known_to_section:
+                        break
+            else:
+                raise StopIteration()  # no more children
             return IdList(child_ids,
                           runtime=self.my_osid_object._runtime,
                           proxy=self.my_osid_object._runtime)
@@ -275,6 +318,7 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
             # raise AttributeError() # let my_osid_object handle it
         return self._magic_parent_id
 
+
 class ScaffoldDownAssessmentPartFormRecord(abc_assessment_authoring_records.AssessmentPartFormRecord,
                                            osid_records.OsidRecord):
     """magic assessment part form record for scaffold down adaptive assessments"""
@@ -346,7 +390,7 @@ class ScaffoldDownAssessmentPartFormRecord(abc_assessment_authoring_records.Asse
             'read_only': False,
             'linked': False,
             'array': False,
-            'default_cardinal_values': [1],
+            'default_cardinal_values': [None],
             'syntax': 'CARDINAL',
             'minimum_cardinal': 0,
             'maximum_cardinal': None,
@@ -500,7 +544,8 @@ class ScaffoldDownAssessmentPartFormRecord(abc_assessment_authoring_records.Asse
         """This determines how many waypoint items will be seen for a scaffolded wrong answer"""
         if self.get_max_waypoint_items_metadata().is_read_only():
             raise NoAccess()
-        if not self.my_osid_object_form._is_valid_cardinal(max_waypoint_items):
+        if not self.my_osid_object_form._is_valid_cardinal(max_waypoint_items,
+                                                           self.get_max_waypoint_items_metadata()):
             raise InvalidArgument()
         self.my_osid_object_form._my_map['maxWaypointItems'] = max_waypoint_items
 
@@ -514,16 +559,17 @@ class ScaffoldDownAssessmentPartFormRecord(abc_assessment_authoring_records.Asse
     def get_waypoint_quota_metadata(self):
         """get the metadata for waypoint quota"""
         metadata = dict(self._waypoint_quota_metadata)
-        metadata.update({'existing_cardinal_values': self.my_osid_object_form._my_map['waypointQtems']})
+        metadata.update({'existing_cardinal_values': self.my_osid_object_form._my_map['waypointQuota']})
         return Metadata(**metadata)
 
     def set_waypoint_quota(self, waypoint_quota):
         """how many waypoint questions need to be answered correctly"""
         if self.get_waypoint_quota_metadata().is_read_only():
             raise NoAccess()
-        if not self.my_osid_object_form._is_valid_cardinal(waypoint_quota):
+        if not self.my_osid_object_form._is_valid_cardinal(waypoint_quota,
+                                                           self.get_waypoint_quota_metadata()):
             raise InvalidArgument()
-        self.my_osid_object_form._my_map['waypointQtems'] = waypoint_quota
+        self.my_osid_object_form._my_map['waypointQuota'] = waypoint_quota
 
     def clear_waypoint_quota(self):
         if (self.get_waypoint_quota_metadata().is_read_only() or
