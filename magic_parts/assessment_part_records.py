@@ -211,49 +211,6 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
                     return True
             return False
 
-        # def descendants_have_unanswered_questions(child_id_to_check):
-        #     """if there are any unanswered descendant questions as part of this child,
-        #         do not generate more children"""
-        #     apls = get_assessment_part_lookup_session(runtime=self.my_osid_object._runtime,
-        #                                               proxy=self.my_osid_object._proxy,
-        #                                               section=self._assessment_section)
-        #     apls.use_federated_bank_view()
-        #     apls.use_unsequestered_assessment_part_view()
-        #     child_part = apls.get_assessment_part(child_id_to_check)
-        #     if child_part.has_children():
-        #         grandchildren_ids = child_part.get_child_ids()
-        #         for grandchild_id in grandchildren_ids:
-        #             grandchild = apls.get_assessment_part(grandchild_id)
-        #             if grandchild.has_item_ids():
-        #                 for item_id in grandchild.get_item_ids():
-        #                     matching_questions = [q for q in self._assessment_section._my_map['questions']
-        #                                           if q['questionId'] == str(item_id)]
-        #                     if len(matching_questions) > 0:
-        #                         # assume first match?
-        #                         if not self._assessment_section._is_question_answered(Id(matching_questions[0]['questionId'])):
-        #                             return True
-        #                         else:
-        #                             return False
-        #                     else:
-        #                         # question is new, not in the part yet, therefore unanswered
-        #                         return True
-        #             return descendants_have_unanswered_questions(grandchild_id)
-        #     else:
-        #         # check that the child itself does not have an unanswered question
-        #         for item_id in child_part.get_item_ids():
-        #             matching_questions = [q for q in self._assessment_section._my_map['questions']
-        #                                   if q['questionId'] == str(item_id)]
-        #             if len(matching_questions) > 0:
-        #                 # assume first match?
-        #                 if not self._assessment_section._is_question_answered(Id(matching_questions[0]['questionId'])):
-        #                     return True
-        #                 else:
-        #                     return False
-        #             else:
-        #                 # question is new, not in the part yet, therefore unanswered
-        #                 return True
-        #     return False
-
         if self.has_children():
             child_ids = []
 
