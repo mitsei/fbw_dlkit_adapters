@@ -216,6 +216,7 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
 
             # correct answers may not generate an objective at all
             # and they should not generate children
+            # but wrong answers with no confused LO should generate a sibling ...
             scaffold_objective_ids = self.get_scaffold_objective_ids()
             if scaffold_objective_ids.available() > 0:
                 objective_id = scaffold_objective_ids.next() # Assume just one for now
@@ -264,7 +265,7 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
                     if not child_known_to_section:
                         break
             else:
-                raise StopIteration()  # no more children
+                pass  # no more children
             return IdList(child_ids,
                           runtime=self.my_osid_object._runtime,
                           proxy=self.my_osid_object._runtime)
