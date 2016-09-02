@@ -248,11 +248,13 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
                     # it will generate another waypoint i.e. if 1.1. is wrong, then 1.2 -> 1.2, 1.3 -> 1.2, 1.3, 1.4
                     # because you haven't achieved the "right number" quota.
                     # However, the behavior we want is that we get only 1 more new question
-                    # depending on if the previous one was answered or not -- so there
-                    # should be another parameter to check, like
-                    # "quota_achieved or not descendants_have_unanswered_questions"
-                    # also don't generate a new question if there are unanswered questions from
-                    # previous children ... like, 1.1, 1.1.1, don't generate 1.2 if 1.1.1 is unanswered
+                    # depending on if child_part thinks that
+                    # it is "done", i.e. the parent should keep generating sibling parts.
+                    # One metric for this is if all descendant parts / questions have been answered or not...
+                    # i.e.
+                    # "quota_achieved or not should_generate_siblings_for_child_part"
+                    #
+                    # like, if you currently have 1.1, 1.1.1, don't generate 1.2 if 1.1.1 is unanswered
                     if child_known_to_section:
                         apls = get_assessment_part_lookup_session(runtime=self.my_osid_object._runtime,
                                                                   proxy=self.my_osid_object._proxy,
