@@ -9,6 +9,7 @@ from random import shuffle
 from urllib import quote, unquote
 
 from dlkit.abstract_osid.assessment_authoring import record_templates as abc_assessment_authoring_records
+from dlkit.mongo.assessment.assessment_utilities import get_assessment_part_lookup_session
 from dlkit.mongo.assessment_authoring.objects import AssessmentPartList
 from dlkit.mongo.assessment_authoring.sessions import AssessmentPartLookupSession
 from dlkit.mongo.id.objects import IdList
@@ -143,6 +144,44 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
                     pass
         return False
 
+    def should_generate_siblings(self):
+        """ equivalent to "done", this method reports back to a parent
+        part's get_child_ids() method, if the parent should generate additional
+        siblings / child_ids after this one.
+
+        Currently our metric is if this child part's items are unanswered
+        or if it has a descendant whose items are unanswered, return False
+        :return: boolean
+        """
+        apls = get_assessment_part_lookup_session(runtime=self.my_osid_object._runtime,
+                                                      proxy=self.my_osid_object._proxy,
+                                                      section=self._assessment_section)
+        apls.use_federated_bank_view()
+        apls.use_unsequestered_assessment_part_view()
+        this_part_is_done = True
+        # check that the child itself does not have an unanswered question
+        for item_id in self.my_osid_object.get_item_ids():
+            matching_questions = [q for q in self._assessment_section._my_map['questions']
+                                  if q['questionId'] == str(item_id)]
+            if len(matching_questions) > 0:
+                # assume first match?
+                if not self._assessment_section._is_question_answered(Id(matching_questions[0]['questionId'])):
+                    this_part_is_done = False
+            else:
+                # question is new, not in the part yet, therefore unanswered
+                this_part_is_done = False
+
+        # also check the descendants. If any of them say not to generate
+        # more children, then this part is not done, either
+        if self.my_osid_object.has_children():
+            grandchildren_ids = self.my_osid_object.get_child_ids()
+            for grandchild_id in grandchildren_ids:
+                grandchild = apls.get_assessment_part(grandchild_id)
+                if not grandchild.should_generate_siblings():
+                    this_part_is_done = False
+                    break
+        return this_part_is_done  # if this part is not done, should not generate new siblings
+
     def get_child_ids(self):
         """creates max_waypoint_items number of new child parts"""
         quota_counter = QuotaCounter()
@@ -172,20 +211,48 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
                     return True
             return False
 
-        def one_unanswered_question_in_children_already_exists(child_id_to_check):
-            """keep track of unanswered children questions. Only permit 1"""
-            question_id = get_part_question_id(child_id_to_check)
-            if question_id is None:
-                return False
-            try:
-                if not self._assessment_section._is_question_answered(question_id):
-                    unanswered_question_counter.num_unanswered += 1
-            except IllegalState:
-                pass
-            if unanswered_question_counter.num_unanswered == 1:
-                return True
-            else:
-                return False
+        # def descendants_have_unanswered_questions(child_id_to_check):
+        #     """if there are any unanswered descendant questions as part of this child,
+        #         do not generate more children"""
+        #     apls = get_assessment_part_lookup_session(runtime=self.my_osid_object._runtime,
+        #                                               proxy=self.my_osid_object._proxy,
+        #                                               section=self._assessment_section)
+        #     apls.use_federated_bank_view()
+        #     apls.use_unsequestered_assessment_part_view()
+        #     child_part = apls.get_assessment_part(child_id_to_check)
+        #     if child_part.has_children():
+        #         grandchildren_ids = child_part.get_child_ids()
+        #         for grandchild_id in grandchildren_ids:
+        #             grandchild = apls.get_assessment_part(grandchild_id)
+        #             if grandchild.has_item_ids():
+        #                 for item_id in grandchild.get_item_ids():
+        #                     matching_questions = [q for q in self._assessment_section._my_map['questions']
+        #                                           if q['questionId'] == str(item_id)]
+        #                     if len(matching_questions) > 0:
+        #                         # assume first match?
+        #                         if not self._assessment_section._is_question_answered(Id(matching_questions[0]['questionId'])):
+        #                             return True
+        #                         else:
+        #                             return False
+        #                     else:
+        #                         # question is new, not in the part yet, therefore unanswered
+        #                         return True
+        #             return descendants_have_unanswered_questions(grandchild_id)
+        #     else:
+        #         # check that the child itself does not have an unanswered question
+        #         for item_id in child_part.get_item_ids():
+        #             matching_questions = [q for q in self._assessment_section._my_map['questions']
+        #                                   if q['questionId'] == str(item_id)]
+        #             if len(matching_questions) > 0:
+        #                 # assume first match?
+        #                 if not self._assessment_section._is_question_answered(Id(matching_questions[0]['questionId'])):
+        #                     return True
+        #                 else:
+        #                     return False
+        #             else:
+        #                 # question is new, not in the part yet, therefore unanswered
+        #                 return True
+        #     return False
 
         if self.has_children():
             child_ids = []
@@ -203,7 +270,6 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
                            'objective_ids': [str(objective_id)]}
                 orig_identifier = unquote(orig_id.get_identifier()).split('?')[0]
 
-                child_known_to_section = None
                 max_waypoints = self.my_osid_object._my_map['maxWaypointItems']
                 if max_waypoints is None:
                     max_waypoints = ENDLESS
@@ -226,11 +292,18 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
                     # However, the behavior we want is that we get only 1 more new question
                     # depending on if the previous one was answered or not -- so there
                     # should be another parameter to check, like
-                    # "quota_achieved or one_unanswered_question_in_children_already_exists"
-                    if (child_known_to_section and
-                            (quota_achieved(child_id) or
-                             one_unanswered_question_in_children_already_exists(child_id))):
-                        break
+                    # "quota_achieved or not descendants_have_unanswered_questions"
+                    # also don't generate a new question if there are unanswered questions from
+                    # previous children ... like, 1.1, 1.1.1, don't generate 1.2 if 1.1.1 is unanswered
+                    if child_known_to_section:
+                        apls = get_assessment_part_lookup_session(runtime=self.my_osid_object._runtime,
+                                                                  proxy=self.my_osid_object._proxy,
+                                                                  section=self._assessment_section)
+                        apls.use_federated_bank_view()
+                        apls.use_unsequestered_assessment_part_view()
+                        child_part = apls.get_assessment_part(child_id)
+                        if quota_achieved(child_id) or not child_part.should_generate_siblings():
+                            break
                     if not child_known_to_section:
                         break
             else:
