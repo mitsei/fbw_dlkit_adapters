@@ -675,9 +675,6 @@ class MagicAssessmentPartLookupSession(AssessmentPartLookupSession):
             assessment_part.initialize(assessment_part_id.identifier, self._my_assessment_section)
             return assessment_part
         else:
-            if assessment_part_id.identifier == 'None':
-                import pdb
-                pdb.set_trace()
             return super(MagicAssessmentPartLookupSession, self).get_assessment_part(assessment_part_id)
 
     def get_assessment_parts_by_ids(self, assessment_part_ids):
