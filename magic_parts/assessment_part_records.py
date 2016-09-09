@@ -24,11 +24,9 @@ from ...osid.base_records import ObjectInitRecord
 MAGIC_PART_AUTHORITY = 'magic-part-authority'
 ENDLESS = 10000 # For seemingly endless waypoints
 
+
 class QuotaCounter(object):
     # http://stackoverflow.com/questions/4020419/why-arent-python-nested-functions-called-closures
-    pass
-
-class UnansweredQuestionCounter(object):
     pass
 
 
@@ -158,37 +156,119 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
                                                       section=self._assessment_section)
         apls.use_federated_bank_view()
         apls.use_unsequestered_assessment_part_view()
-        this_part_is_done = True
-        # check that the child itself does not have an unanswered question
-        for item_id in self.my_osid_object.get_item_ids():
-            matching_questions = [q for q in self._assessment_section._my_map['questions']
-                                  if q['questionId'] == str(item_id)]
-            if len(matching_questions) > 0:
-                # assume first match?
-                if not self._assessment_section._is_question_answered(Id(matching_questions[0]['questionId'])):
-                    this_part_is_done = False
-            else:
-                # question is new, not in the part yet, therefore unanswered
-                this_part_is_done = False
+        should_generate_siblings = True
 
-        # also check the descendants. If any of them say not to generate
-        # more children, then this part is not done, either
+        # to avoid recursion and needless checking of child_ids for magic parts,
+        # we will inspect the section's current question list to find if any
+        # children parts of this one (at this level or below) have
+        # unanswered questions
+        # while the recursive check is fast, the sheer volume of checks
+        # causes this to become unreasonably slow
+        # Steps:
+        #  1) inspect self._assessment_section._my_map['assessmentParts']
+        #  2) get all subsequent parts after this one, up until one at the same level (i.e. the first sibling)
+        #  3) for each of these child parts, get its corresponding list of questions
+        #     from self._assessment_section._my_map['questions']
+        #  4) if any of these questions are missingResponse == 0 or 1, then this_part_is_done = False
+
+        current_part_ids = [p['assessmentPartId'] for p in self._assessment_section._my_map['assessmentParts']]
+        my_part_index = current_part_ids.index(str(self.my_osid_object.ident))
+        my_level = self._assessment_section._my_map['assessmentParts'][my_part_index]['level']
+        route_part_ids = [str(self.my_osid_object.ident)]
+        routes_by_level = {
+            my_level: [str(self.my_osid_object.ident)]
+        }
+
+        for child_part in self._assessment_section._my_map['assessmentParts'][my_part_index + 1::]:
+            child_level = child_part['level']
+            if child_level <= my_level:
+                break
+            else:
+                route_part_ids.append(child_part['assessmentPartId'])
+                if child_level not in routes_by_level:
+                    routes_by_level[child_level] = []
+                routes_by_level[child_level].append(child_part['assessmentPartId'])
+
+        for part_id in route_part_ids:
+            part_questions = [q
+                              for q in self._assessment_section._my_map['questions']
+                              if q['assessmentPartId'] == part_id]
+
+            # if there is an unanswered question at any level, do not generate siblings for this
+            # part
+            if any('missingResponse' in r
+                   for q in part_questions
+                   for r in q['responses']):
+                should_generate_siblings = False
+                break
+            # this part's questions haven't been added to the section yet!
+            # So don't generate siblings
+            if len(part_questions) == 0:
+                should_generate_siblings = False
+                break
+
+        # or, if quota achieved at all levels > my_level && my answer is wrong, should
+        # generate siblings. Otherwise, return False
+        num_lower_levels = len([k for k in routes_by_level.keys() if k != my_level])
+        num_lower_level_with_quota_achieved = 0
+        my_correctness = False
+
+        for route_level, part_ids in routes_by_level.iteritems():
+            level_num_correct = 0
+            for part_id in part_ids:
+                question_ids = self._assessment_section._get_question_ids_for_assessment_part(part_id)
+                for question_id in question_ids:
+                    try:
+                        if route_level == my_level:
+                            my_correctness = self._assessment_section._is_correct(question_id)
+                        else:
+                            if self._assessment_section._is_correct(question_id):
+                                level_num_correct += 1
+                    except IllegalState:
+                        pass
+            if route_level > my_level and level_num_correct == self.my_osid_object._my_map['waypointQuota']:
+                num_lower_level_with_quota_achieved += 1
+
+        # only not generate siblings if this one is wrong and haven't reached the quota
+        # on all lower levels
+        if not my_correctness and num_lower_levels != num_lower_level_with_quota_achieved:
+            should_generate_siblings = False
+
+
+        # or, this has children that do not appear above, then they are new and
+        # this part isn't done yet, because those questions haven't been answered
         if self.my_osid_object.has_children():
-            grandchildren_ids = self.my_osid_object.get_child_ids()
-            for grandchild_id in grandchildren_ids:
-                grandchild = apls.get_assessment_part(grandchild_id)
-                if not grandchild.should_generate_siblings():
-                    this_part_is_done = False
-                    break
-        return this_part_is_done  # if this part is not done, should not generate new siblings
+            children_id_strs = [str(ci) for ci in self.my_osid_object.get_child_ids()]
+            if any(c_id_str not in route_part_ids for c_id_str in children_id_strs):
+                should_generate_siblings = False
+
+        # # check that the child itself does not have an unanswered question
+        # for item_id in self.my_osid_object.get_item_ids():
+        #     matching_questions = [q for q in self._assessment_section._my_map['questions']
+        #                           if q['questionId'] == str(item_id)]
+        #     if len(matching_questions) > 0:
+        #         # assume first match?
+        #         if not self._assessment_section._is_question_answered(Id(matching_questions[0]['questionId'])):
+        #             this_part_is_done = False
+        #     else:
+        #         # question is new, not in the part yet, therefore unanswered
+        #         this_part_is_done = False
+        #
+        # # also check the descendants. If any of them say not to generate
+        # # more children, then this part is not done, either
+        # if self.my_osid_object.has_children():
+        #     grandchildren_ids = self.my_osid_object.get_child_ids()
+        #     for grandchild_id in grandchildren_ids:
+        #         grandchild = apls.get_assessment_part(grandchild_id)
+        #         if not grandchild.should_generate_siblings():
+        #             this_part_is_done = False
+        #             break
+        return should_generate_siblings  # if this part is not done, should not generate new siblings
 
     def get_child_ids(self):
         """creates max_waypoint_items number of new child parts"""
         quota_counter = QuotaCounter()
         quota_counter.num_correct = 0
-
-        unanswered_question_counter = UnansweredQuestionCounter()
-        unanswered_question_counter.num_unanswered = 0
 
         def get_part_question_id(part_id_to_check):
             question_ids = self._assessment_section._get_question_ids_for_assessment_part(part_id_to_check)
