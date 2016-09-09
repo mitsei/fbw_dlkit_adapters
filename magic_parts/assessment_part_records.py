@@ -152,8 +152,8 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         :return: boolean
         """
         apls = get_assessment_part_lookup_session(runtime=self.my_osid_object._runtime,
-                                                      proxy=self.my_osid_object._proxy,
-                                                      section=self._assessment_section)
+                                                  proxy=self.my_osid_object._proxy,
+                                                  section=self._assessment_section)
         apls.use_federated_bank_view()
         apls.use_unsequestered_assessment_part_view()
         should_generate_siblings = True
