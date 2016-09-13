@@ -408,15 +408,14 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
 
     def get_my_item_id_from_section(self, section):
         """returns the first item associated with this magic Part Id in the Section"""
-        questions = list(section._get_questions(update=False))
-        for index, question_map in enumerate(section._my_map['questions']):
+        for question_map in section._my_map['questions']:
             if question_map['assessmentPartId'] == str(self.get_id()):
                 # need to return this because the ID from the question object
                 # will be unique ... if we just return Id(question_map['questionId'])
                 # it could be a magic item ID, which could easily be repeated elsewhere
                 # in the section -- hence the "section._is_correct" method could
                 # return the wrong state of the item
-                return questions[index].get_id()
+                return section._get_question(question_map=question_map).get_id()
         raise IllegalState('This Part currently has no Item in the Section')
 
     def delete(self):
