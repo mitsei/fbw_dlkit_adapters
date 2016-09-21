@@ -2,6 +2,8 @@ import json
 
 from bson import ObjectId
 
+from copy import deepcopy
+
 from dlkit.mongo.osid import record_templates as osid_records
 from dlkit.mongo.assessment.objects import Question
 from dlkit.mongo.assessment.sessions import ItemLookupSession
@@ -131,6 +133,13 @@ class MultiChoiceRandomizeChoicesQuestionFormRecord(MultiChoiceTextAndFilesQuest
             self._init_map()
         super(MultiChoiceRandomizeChoicesQuestionFormRecord, self).__init__(osid_object_form)
 
+    def _init_map(self):
+        """stub"""
+        super(MultiChoiceRandomizeChoicesQuestionFormRecord, self)._init_map()
+
+    def _init_metadata(self):
+        """stub"""
+        super(MultiChoiceRandomizeChoicesQuestionFormRecord, self)._init_metadata()
 
 class MultiChoiceRandomizeChoicesQuestionRecord(MultiChoiceTextAndFilesQuestionRecord):
     _implemented_record_type_identifiers = [
@@ -138,7 +147,7 @@ class MultiChoiceRandomizeChoicesQuestionRecord(MultiChoiceTextAndFilesQuestionR
     ]
 
     def __init__(self, osid_object):
-        self._original_choice_order = list(osid_object._my_map['choices'])
+        self._original_choice_order = deepcopy(osid_object._my_map['choices'])
         super(MultiChoiceRandomizeChoicesQuestionRecord, self).__init__(osid_object)
         if not self.my_osid_object._my_map['choices']:
             raise IllegalState()
