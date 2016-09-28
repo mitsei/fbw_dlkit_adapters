@@ -16,7 +16,7 @@ from dlkit.mongo.id.objects import IdList
 from dlkit.mongo.osid import record_templates as osid_records
 from dlkit.mongo.osid.metadata import Metadata
 from dlkit.mongo.primitives import Id
-from dlkit.mongo.osid.osid_errors import IllegalState, InvalidArgument, NoAccess, NotFound
+from dlkit.mongo.osid.osid_errors import IllegalState, InvalidArgument, NoAccess, NotFound, OperationFailed
 from dlkit.mongo.utilities import MongoClientValidated
 
 from ...osid.base_records import ObjectInitRecord
@@ -25,15 +25,9 @@ MAGIC_PART_AUTHORITY = 'magic-part-authority'
 ENDLESS = 10000 # For seemingly endless waypoints
 
 
-class QuotaCounter(object):
-    # http://stackoverflow.com/questions/4020419/why-arent-python-nested-functions-called-closures
-    pass
-
-
 def get_part_from_magic_part_lookup_session(section, part_id, *args, **kwargs):
     mpls = MagicAssessmentPartLookupSession(section, *args, **kwargs)
     return mpls.get_assessment_part(part_id)
-
 
 class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
     """magic assessment part record for scaffold down adaptive questions"""
@@ -46,6 +40,11 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         self._assessment_section = None
         self._magic_parent_id = None
         self._level = 0
+        self._part_map = dict()
+        if self.my_osid_object._my_map['maxWaypointItems'] is None:
+            self._max_waypoints = ENDLESS
+        else:
+            self._max_waypoints = self.my_osid_object._my_map['maxWaypointItems']
 
     def get_id(self):
         """override get_id to generate our "magic" id that encodes scaffolding information"""
@@ -97,6 +96,21 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
             except IllegalState:
                 self.load_item_for_objective()
 
+    def get_parts_and_levels(self, parts=None, levels=None):
+        if parts is None:
+            parts = list()
+            levels = list()
+        if self._child_parts is None:
+            if self.has_children():
+                self.generate_children()
+            else:
+                return parts, levels
+        for part in self._child_parts:
+            child_parts, child_levels = part.get_parts_and_levels(parts, levels)
+            parts = parts + child_parts
+            levels = levels + child_levels
+        return parts, levels
+
     def load_item_for_objective(self):
         """if this is the first time for this magic part, find an LO linked item"""
         mgr = self.my_osid_object._get_provider_manager('ASSESSMENT', local=True)
@@ -130,6 +144,8 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
 
     def has_children(self):
         """checks if child parts are currently available for this part"""
+        if self._child_parts is not None: # generate_children has already been called
+            return bool(self._child_parts)
         if self._assessment_section is not None:
             if (self.my_osid_object._my_map['maxLevels'] is None or
                     self.my_osid_object._my_map['maxLevels'] > self._level):
@@ -140,214 +156,99 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
                         return True
                 except IllegalState:
                     pass
+        return False # REALLY? What if this is the first, non-magic part?
+
+    def finished_generating_children(self):
+        if self._child_parts is None:
+            if self.has_children():
+                self.generate_children():
+            else:
+                return True
+        if len(self._child_parts) == self._max_waypoints:
+            return True
+        num_correct = 0
+        for part in self._child_parts:
+            question_id = self.get_question_id_for_assessment_part(part.get_id())
+            if question_id is None:
+                raise OperationFailed
+            try:
+                if self._assessment_section.is_question_correct(question_id):
+                    num_correct += 1
+            except IllegalState:
+                pass
+        if num_correct >= self.my_osid_object._my_map['waypointQuota']:
+            return True
         return False
 
-    def should_generate_siblings(self):
-        """ equivalent to "done", this method reports back to a parent
-        part's get_child_ids() method, if the parent should generate additional
-        siblings / child_ids after this one.
+    def get_question_id_for_assessment_part(assessment_part_id):
+        question_ids = self._assessment_section._get_question_ids_for_assessment_part(assessment_part_id)
+        if not question_ids:
+            return None
+        return question_ids[0]  # There is only one expected, but this might change
 
-        Currently our metric is if this child part's items are unanswered
-        or if it has a descendant whose items are unanswered, return False
-        :return: boolean
-        """
-        apls = get_assessment_part_lookup_session(runtime=self.my_osid_object._runtime,
-                                                      proxy=self.my_osid_object._proxy,
-                                                      section=self._assessment_section)
-        apls.use_federated_bank_view()
-        apls.use_unsequestered_assessment_part_view()
-        should_generate_siblings = True
+    def generate_children(self):
+        self._child_parts = list()
+        if not self.has_children():
+            return
 
-        # to avoid recursion and needless checking of child_ids for magic parts,
-        # we will inspect the section's current question list to find if any
-        # children parts of this one (at this level or below) have
-        # unanswered questions
-        # while the recursive check is fast, the sheer volume of checks
-        # causes this to become unreasonably slow
-        # Steps:
-        #  1) inspect self._assessment_section._my_map['assessmentParts']
-        #  2) get all subsequent parts after this one, up until one at the same level (i.e. the first sibling)
-        #  3) for each of these child parts, get its corresponding list of questions
-        #     from self._assessment_section._my_map['questions']
-        #  4) if any of these questions are missingResponse == 0 or 1, then this_part_is_done = False
+        scaffold_objective_ids = self.get_scaffold_objective_ids()
+        if scaffold_objective_ids.available() == 0:
+            return
 
-        current_part_ids = [p['assessmentPartId'] for p in self._assessment_section._my_map['assessmentParts']]
-        my_part_index = current_part_ids.index(str(self.my_osid_object.ident))
-        my_level = self._assessment_section._my_map['assessmentParts'][my_part_index]['level']
-        route_part_ids = [str(self.my_osid_object.ident)]
-        routes_by_level = {
-            my_level: [str(self.my_osid_object.ident)]
-        }
+        # Prepare common Id elements for chidren:
+        objective_id = scaffold_objective_ids.next() # Assume just one for now
+        my_id = self.my_osid_object.get_id()
+        orig_identifier = unquote(my_id.get_identifier()).split('?')[0]
+        namespace = 'assessment_authoring.AssessmentPart'
+        level = self._level + 1
+        arg_map = {'parent_id': str(my_id),
+                   'level': level,
+                   'objective_ids': [str(objective_id)]}
+        orig_identifier = unquote(my_id.get_identifier()).split('?')[0]
 
-        for child_part in self._assessment_section._my_map['assessmentParts'][my_part_index + 1::]:
-            child_level = child_part['level']
-            if child_level <= my_level:
-                break
+        # Generate all parts already known to the section:
+        section_part_ids = [p['assessmentPartId'] for p in self._assessment_section._my_map['assessmentParts']]
+        for num in range(self._max_waypoints):
+            arg_map['waypoint_index'] = num
+            magic_identifier_part = quote('{0}?{1}'.format(orig_identifier,
+                                                           json.dumps(arg_map)))
+            child_part_id = Id(authority=MAGIC_PART_AUTHORITY,
+                               namespace=namespace,
+                               identifier=magic_identifier_part)
+            if str(child_part_id) in section_part_ids:
+                child_part = get_part_from_magic_part_lookup_session(
+                    section=self._assessment_section,
+                    part_id=child_part_id,
+                    runtime=self._runtime,
+                    proxy=self._proxy)
+                self._child_parts.append(child_part)
             else:
-                route_part_ids.append(child_part['assessmentPartId'])
-                if child_level not in routes_by_level:
-                    routes_by_level[child_level] = []
-                routes_by_level[child_level].append(child_part['assessmentPartId'])
-
-        for part_id in route_part_ids:
-            part_questions = [q
-                              for q in self._assessment_section._my_map['questions']
-                              if q['assessmentPartId'] == part_id]
-
-            # if there is an unanswered question at any level, do not generate siblings for this
-            # part
-            if any('missingResponse' in r
-                   for q in part_questions
-                   for r in q['responses']):
-                should_generate_siblings = False
                 break
-            # this part's questions haven't been added to the section yet!
-            # So don't generate siblings
-            if len(part_questions) == 0:
-                should_generate_siblings = False
-                break
+        if len(self._child_parts) == self._max_waypoints:
+            return
 
-        # or, if quota achieved at all levels > my_level && my answer is wrong, should
-        # generate siblings. Otherwise, return False
-        num_lower_levels = len([k for k in routes_by_level.keys() if k != my_level])
-        num_lower_level_with_quota_achieved = 0
-        my_correctness = False
-
-        for route_level, part_ids in routes_by_level.iteritems():
-            level_num_correct = 0
-            for part_id in part_ids:
-                question_ids = self._assessment_section._get_question_ids_for_assessment_part(part_id)
-                for question_id in question_ids:
-                    try:
-                        if route_level == my_level:
-                            my_correctness = self._assessment_section._is_correct(question_id)
-                        else:
-                            if self._assessment_section._is_correct(question_id):
-                                level_num_correct += 1
-                    except IllegalState:
-                        pass
-            if route_level > my_level and level_num_correct == self.my_osid_object._my_map['waypointQuota']:
-                num_lower_level_with_quota_achieved += 1
-
-        # only not generate siblings if this one is wrong and haven't reached the quota
-        # on all lower levels
-        if not my_correctness and num_lower_levels != num_lower_level_with_quota_achieved:
-            should_generate_siblings = False
-
-
-        # or, this has children that do not appear above, then they are new and
-        # this part isn't done yet, because those questions haven't been answered
-        if self.my_osid_object.has_children():
-            children_id_strs = [str(ci) for ci in self.my_osid_object.get_child_ids()]
-            if any(c_id_str not in route_part_ids for c_id_str in children_id_strs):
-                should_generate_siblings = False
-
-        # # check that the child itself does not have an unanswered question
-        # for item_id in self.my_osid_object.get_item_ids():
-        #     matching_questions = [q for q in self._assessment_section._my_map['questions']
-        #                           if q['questionId'] == str(item_id)]
-        #     if len(matching_questions) > 0:
-        #         # assume first match?
-        #         if not self._assessment_section._is_question_answered(Id(matching_questions[0]['questionId'])):
-        #             this_part_is_done = False
-        #     else:
-        #         # question is new, not in the part yet, therefore unanswered
-        #         this_part_is_done = False
-        #
-        # # also check the descendants. If any of them say not to generate
-        # # more children, then this part is not done, either
-        # if self.my_osid_object.has_children():
-        #     grandchildren_ids = self.my_osid_object.get_child_ids()
-        #     for grandchild_id in grandchildren_ids:
-        #         grandchild = apls.get_assessment_part(grandchild_id)
-        #         if not grandchild.should_generate_siblings():
-        #             this_part_is_done = False
-        #             break
-        return should_generate_siblings  # if this part is not done, should not generate new siblings
+        # Check if child parts are finished. This will force them to generate children too
+        # If any return True then generate the new child
+        one_child_has_finished = False
+        for part in self._child_parts:
+            if part.finished_generating_children():
+                one_child_has_finished = True
+        if not self._child_parts or one_child_finished:
+            child_part = get_part_from_magic_part_lookup_session(
+                section=self._assessment_section,
+                part_id=child_part_id,
+                runtime=self._runtime,
+                proxy=self._proxy)
+            self._child_parts.append(child_part)
 
     def get_child_ids(self):
-        """creates max_waypoint_items number of new child parts"""
-        quota_counter = QuotaCounter()
-        quota_counter.num_correct = 0
-
-        def get_part_question_id(part_id_to_check):
-            question_ids = self._assessment_section._get_question_ids_for_assessment_part(part_id_to_check)
-            if not question_ids:
-                return None
-            return question_ids[0]  # There is only one expected, but this might change
-
-        def quota_achieved(child_id_to_check):
-            """keep track of number items correct and compare with waypoint quota"""
-            if self.has_waypoint_quota():
-                question_id = get_part_question_id(child_id_to_check)
-                if question_id is None:
-                    return False
-                try:
-                    if self._assessment_section._is_correct(question_id):
-                        quota_counter.num_correct += 1
-                except IllegalState:
-                    pass
-                if quota_counter.num_correct == self.my_osid_object._my_map['waypointQuota']:
-                    return True
-            return False
-
+        """gets the ids for the child parts"""
         if self.has_children():
-            child_ids = []
-
-            # correct answers may not generate an objective at all
-            # and they should not generate children
-            # but wrong answers with no confused LO should generate a sibling ...
-            scaffold_objective_ids = self.get_scaffold_objective_ids()
-            if scaffold_objective_ids.available() > 0:
-                objective_id = scaffold_objective_ids.next() # Assume just one for now
-                orig_id = self.my_osid_object.get_id()
-                namespace = 'assessment_authoring.AssessmentPart'
-                level = self._level + 1
-                arg_map = {'parent_id': str(self.my_osid_object.get_id()),
-                           'level': level,
-                           'objective_ids': [str(objective_id)]}
-                orig_identifier = unquote(orig_id.get_identifier()).split('?')[0]
-
-                max_waypoints = self.my_osid_object._my_map['maxWaypointItems']
-                if max_waypoints is None:
-                    max_waypoints = ENDLESS
-                for num in range(max_waypoints):
-                    arg_map['waypoint_index'] = num
-                    magic_identifier_part = quote('{0}?{1}'.format(orig_identifier,
-                                                                   json.dumps(arg_map)))
-                    child_id = Id(authority=MAGIC_PART_AUTHORITY,
-                                  namespace=namespace,
-                                  identifier=magic_identifier_part)
-                    child_ids.append(child_id)
-                    section_part_ids = [p['assessmentPartId'] for p in self._assessment_section._my_map['assessmentParts']]
-                    if str(child_id) in section_part_ids:
-                        child_known_to_section = True
-                    else:
-                        child_known_to_section = False
-                    # the problem with only checking quota_achieved is that each time this is called,
-                    # it will generate another waypoint i.e. if 1.1. is wrong, then 1.2 -> 1.2, 1.3 -> 1.2, 1.3, 1.4
-                    # because you haven't achieved the "right number" quota.
-                    # However, the behavior we want is that we get only 1 more new question
-                    # depending on if child_part thinks that
-                    # it is "done", i.e. the parent should keep generating sibling parts.
-                    # One metric for this is if all descendant parts / questions have been answered or not...
-                    # i.e.
-                    # "quota_achieved or not should_generate_siblings_for_child_part"
-                    #
-                    # like, if you currently have 1.1, 1.1.1, don't generate 1.2 if 1.1.1 is unanswered
-                    if child_known_to_section:
-                        apls = get_assessment_part_lookup_session(runtime=self.my_osid_object._runtime,
-                                                                  proxy=self.my_osid_object._proxy,
-                                                                  section=self._assessment_section)
-                        apls.use_federated_bank_view()
-                        apls.use_unsequestered_assessment_part_view()
-                        child_part = apls.get_assessment_part(child_id)
-                        if quota_achieved(child_id) or not child_part.should_generate_siblings():
-                            break
-                    if not child_known_to_section:
-                        break
-            else:
-                pass  # no more children
+            if self._child_parts is None:
+                self.generate_children()
+            child_ids = list()
+            for part in self._child_parts:
+                child_ids.append(part.get_id())
             return IdList(child_ids,
                           runtime=self.my_osid_object._runtime,
                           proxy=self.my_osid_object._runtime)
@@ -355,17 +256,11 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
 
     def get_children(self):
         """return the current child parts of this assessment part"""
-        part_list = []
-        for child_id in self.get_child_ids():
-            part = get_part_from_magic_part_lookup_session(self._assessment_section,
-                                                           child_id,
-                                                           runtime=self.my_osid_object._runtime,
-                                                           proxy=self.my_osid_object._proxy)
-            # The magic_part_lookup_session will call part.initialize()
-            part_list.append(part)
-        return AssessmentPartList(part_list,
-                                  runtime=self.my_osid_object._runtime,
-                                  proxy=self.my_osid_object._proxy)
+        if self.has_children():
+            if self._child_parts is None:
+                self.generate_children()
+            return self._child_parts
+        raise IllegalState()
 
     def has_item_ids(self):
         """does this part have any item ids associated with it"""
@@ -430,6 +325,23 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
             return Id(self.my_osid_object._my_map['assessmentPartId'])
             # raise AttributeError() # let my_osid_object handle it
         return self._magic_parent_id
+
+    def get_assessment_part(self, assessment_part_id):
+        """If there's an AssessmentSection ask it first for the part.
+        
+        This will take advantage of the fact that the AssessmentSection may
+        have already cached the Part in question.
+        
+        """
+        if self._assessment_section is not None:
+            return self._assessment_section._get_assessment_part(assessment_part_id)
+        # else:
+        apls = get_assessment_part_lookup_session(runtime=self.my_osid_object._runtime,
+                                                      proxy=self.my_osid_object._proxy,
+                                                      section=self._assessment_section)
+        apls.use_federated_bank_view()
+        apls.use_unsequestered_assessment_part_view()
+        return apls.get_assessment_part(assessment_part_id)
 
 
 class ScaffoldDownAssessmentPartFormRecord(abc_assessment_authoring_records.AssessmentPartFormRecord,
@@ -519,7 +431,7 @@ class ScaffoldDownAssessmentPartFormRecord(abc_assessment_authoring_records.Asse
             'read_only': False,
             'linked': False,
             'array': False,
-            'default_cardinal_values': [None],
+            'default_cardinal_values': [0],
             'syntax': 'CARDINAL',
             'minimum_cardinal': 0,
             'maximum_cardinal': None,
