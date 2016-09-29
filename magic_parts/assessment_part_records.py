@@ -96,20 +96,22 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
             except IllegalState:
                 self.load_item_for_objective()
 
-    def get_parts_and_levels(self, parts=None, levels=None):
+    def get_parts(self, parts=None, reference_level=0):
+        """Recursively returns a depth-first list of all known magic parts"""
         if parts is None:
             parts = list()
-            levels = list()
+        else:
+            self._absolute_level = self._level + reference_level
+            parts.append(self)
         if self._child_parts is None:
             if self.has_children():
                 self.generate_children()
             else:
-                return parts, levels
+                return parts
         for part in self._child_parts:
-            child_parts, child_levels = part.get_parts_and_levels(parts, levels)
-            parts = parts + child_parts
-            levels = levels + child_levels
-        return parts, levels
+            child_parts = part.get_parts(parts, reference_level)
+            parts += child_parts
+        return parts
 
     def load_item_for_objective(self):
         """if this is the first time for this magic part, find an LO linked item"""
