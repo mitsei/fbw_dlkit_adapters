@@ -27,6 +27,8 @@ ENDLESS = 10000 # For seemingly endless waypoints
 
 def get_part_from_magic_part_lookup_session(section, part_id, *args, **kwargs):
     mpls = MagicAssessmentPartLookupSession(section, *args, **kwargs)
+    mpls.use_unsequestered_assessment_part_view()
+    mpls.use_federated_bank_view()
     return mpls.get_assessment_part(part_id)
 
 class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
@@ -41,6 +43,7 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         self._magic_parent_id = None
         self._level = 0
         self._part_map = dict()
+        self._child_parts = None
         if self.my_osid_object._my_map['maxWaypointItems'] is None:
             self._max_waypoints = ENDLESS
         else:
@@ -92,7 +95,7 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
 
         if self.my_osid_object._my_map['learningObjectiveIds'] != ['']:
             try:
-                self.my_osid_object._my_map['itemIds'] = [self.get_my_item_id_from_section(assessment_section)]
+                self.my_osid_object._my_map['itemIds'] = [str(self.get_my_item_id_from_section(assessment_section))]
             except IllegalState:
                 self.load_item_for_objective()
 
@@ -101,16 +104,19 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         if parts is None:
             parts = list()
         else:
-            self._absolute_level = self._level + reference_level
-            parts.append(self)
+            self._level_in_section = self._level + reference_level
+            parts.append(self.my_osid_object)
         if self._child_parts is None:
             if self.has_children():
                 self.generate_children()
             else:
                 return parts
         for part in self._child_parts:
-            child_parts = part.get_parts(parts, reference_level)
-            parts += child_parts
+            part.get_parts(parts, reference_level)
+            # Don't need to append here, because parts is passed by reference
+            # so appending is redundant
+            # child_parts = part.get_parts(parts, reference_level)
+            # parts += child_parts
         return parts
 
     def load_item_for_objective(self):
@@ -154,7 +160,7 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
                 try:
                     section = self._assessment_section
                     item_id = self.get_my_item_id_from_section(section)
-                    if not section._is_correct(item_id) and section._get_confused_learning_objective_ids(item_id):
+                    if not section.is_correct(item_id) and section.get_confused_learning_objective_ids(item_id):
                         return True
                 except IllegalState:
                     pass
@@ -163,7 +169,7 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
     def finished_generating_children(self):
         if self._child_parts is None:
             if self.has_children():
-                self.generate_children():
+                self.generate_children()
             else:
                 return True
         if len(self._child_parts) == self._max_waypoints:
@@ -182,22 +188,22 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
             return True
         return False
 
-    def get_question_id_for_assessment_part(assessment_part_id):
-        question_ids = self._assessment_section._get_question_ids_for_assessment_part(assessment_part_id)
+    def get_question_id_for_assessment_part(self, assessment_part_id):
+        question_ids = self._assessment_section.get_question_ids_for_assessment_part(assessment_part_id)
         if not question_ids:
             return None
         return question_ids[0]  # There is only one expected, but this might change
 
     def generate_children(self):
-        self._child_parts = list()
         if not self.has_children():
             return
+        self._child_parts = list()
 
         scaffold_objective_ids = self.get_scaffold_objective_ids()
         if scaffold_objective_ids.available() == 0:
             return
 
-        # Prepare common Id elements for chidren:
+        # Prepare common Id elements for children:
         objective_id = scaffold_objective_ids.next() # Assume just one for now
         my_id = self.my_osid_object.get_id()
         orig_identifier = unquote(my_id.get_identifier()).split('?')[0]
@@ -221,26 +227,30 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
                 child_part = get_part_from_magic_part_lookup_session(
                     section=self._assessment_section,
                     part_id=child_part_id,
-                    runtime=self._runtime,
-                    proxy=self._proxy)
+                    runtime=self.my_osid_object._runtime,
+                    proxy=self.my_osid_object._proxy)
                 self._child_parts.append(child_part)
             else:
                 break
         if len(self._child_parts) == self._max_waypoints:
             return
 
-        # Check if child parts are finished. This will force them to generate children too
-        # If any return True then generate the new child
+        # Check if any child parts are finished. This will force them to generate children too
+        # If any return True then add the new childId that as generated above,
+        # because all the grandchildren are done, so we need a new child
         one_child_has_finished = False
         for part in self._child_parts:
-            if part.finished_generating_children():
-                one_child_has_finished = True
-        if not self._child_parts or one_child_finished:
+            try:
+                if part.finished_generating_children():
+                    one_child_has_finished = True
+            except OperationFailed:
+                pass  # there is a new question that hasn't appeared in the section yet
+        if not self._child_parts or one_child_has_finished:
             child_part = get_part_from_magic_part_lookup_session(
                 section=self._assessment_section,
                 part_id=child_part_id,
-                runtime=self._runtime,
-                proxy=self._proxy)
+                runtime=self.my_osid_object._runtime,
+                proxy=self.my_osid_object._proxy)
             self._child_parts.append(child_part)
 
     def get_child_ids(self):
@@ -298,7 +308,7 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         """Assumes that a scaffold objective id is available"""
         section = self._assessment_section
         item_id = self.get_my_item_id_from_section(section)
-        return section._get_confused_learning_objective_ids(item_id)
+        return section.get_confused_learning_objective_ids(item_id)
 
     def get_my_item_id_from_section(self, section):
         """returns the first item associated with this magic Part Id in the Section"""
@@ -328,19 +338,23 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
             # raise AttributeError() # let my_osid_object handle it
         return self._magic_parent_id
 
-    def get_assessment_part(self, assessment_part_id):
+    def get_assessment_part(self):
         """If there's an AssessmentSection ask it first for the part.
         
         This will take advantage of the fact that the AssessmentSection may
         have already cached the Part in question.
         
         """
+        if self._magic_parent_id is None:
+            assessment_part_id = Id(self.my_osid_object._my_map['assessmentPartId'])
+        else:
+            assessment_part_id = self._magic_parent_id
         if self._assessment_section is not None:
             return self._assessment_section._get_assessment_part(assessment_part_id)
         # else:
         apls = get_assessment_part_lookup_session(runtime=self.my_osid_object._runtime,
-                                                      proxy=self.my_osid_object._proxy,
-                                                      section=self._assessment_section)
+                                                  proxy=self.my_osid_object._proxy,
+                                                  section=self._assessment_section)
         apls.use_federated_bank_view()
         apls.use_unsequestered_assessment_part_view()
         return apls.get_assessment_part(assessment_part_id)
