@@ -103,16 +103,18 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         """Recursively returns a depth-first list of all known magic parts"""
         if parts is None:
             parts = list()
+            new_reference_level = reference_level
         else:
             self._level_in_section = self._level + reference_level
+            new_reference_level = self._level_in_section
             parts.append(self.my_osid_object)
         if self._child_parts is None:
-            if self.has_children():
+            if self.has_magic_children():
                 self.generate_children()
             else:
                 return parts
         for part in self._child_parts:
-            part.get_parts(parts, self._level_in_section)
+            part.get_parts(parts, new_reference_level)
             # Don't need to append here, because parts is passed by reference
             # so appending is redundant
             # child_parts = part.get_parts(parts, reference_level)
@@ -150,7 +152,7 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         else:
             self.my_osid_object._my_map['itemIds'] = ['']
 
-    def has_children(self):
+    def has_magic_children(self):
         """checks if child parts are currently available for this part"""
         if self._child_parts is not None: # generate_children has already been called
             return bool(self._child_parts)
@@ -160,7 +162,7 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
                 try:
                     section = self._assessment_section
                     item_id = self.get_my_item_id_from_section(section)
-                    if not section.is_correct(item_id) and section.get_confused_learning_objective_ids(item_id):
+                    if not section.is_correct(item_id) and section.get_confused_learning_objective_ids(item_id).available() > 0:
                         return True
                 except IllegalState:
                     pass
@@ -170,17 +172,14 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         # self._child_parts gets set to empty list () in self.generate_children()
         # so it should come into here as [], not None
         if self._child_parts is None or len(self._child_parts) == 0:
-            if self.has_children():
+            if self.has_magic_children():
                 self.generate_children()
             else:
                 return True
         if len(self._child_parts) == self._max_waypoints:
             return True
         num_correct = 0
-        has_unfinished_children = False
         for part in self._child_parts:
-            if not part.finished_generating_children():
-                has_unfinished_children = True
             question_id = self.get_question_id_for_assessment_part(part.get_id())
             if question_id is None:
                 raise OperationFailed
@@ -191,12 +190,6 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
                 pass
         if num_correct >= self.my_osid_object._my_map['waypointQuota']:
             return True
-        # also self is finished generating children if any of its children are NOT finished
-        # i.e.   1 - W, NotFinished
-        #        1.1 - W, NotFinished   -- DO NOT generate 1.2
-        #        1.1.1 - W, Finished     1.1.2 - Generate this instead
-        if has_unfinished_children:
-            return False
         return False
 
     def get_question_id_for_assessment_part(self, assessment_part_id):
@@ -206,7 +199,7 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         return question_ids[0]  # There is only one expected, but this might change
 
     def generate_children(self):
-        if not self.has_children():
+        if not self.has_magic_children():
             return
         self._child_parts = list()
 
@@ -252,6 +245,7 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         should_add_new_sibling = False
         waypoint_quota_met = False
         num_correct = 0
+        num_not_answered = 0
         for part in self._child_parts:
             try:
                 # also count up waypoint quota for the child_parts level
@@ -263,11 +257,9 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
                     if self._assessment_section.is_correct(question_id):
                         num_correct += 1
                 except IllegalState:
-                    pass
+                    num_not_answered += 1
 
-                # only add a new sibling if this child_part has been answered
-                # otherwise, the student should answer this one, first!
-                if part.finished_generating_children() and self._assessment_section.is_question_answered(question_id):
+                if part.finished_generating_children():
                     should_add_new_sibling = True
 
             except OperationFailed:
@@ -276,7 +268,7 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         if num_correct >= self.my_osid_object._my_map['waypointQuota']:
             waypoint_quota_met = True
 
-        if not self._child_parts or (should_add_new_sibling and not waypoint_quota_met):
+        if not self._child_parts or (should_add_new_sibling and not waypoint_quota_met and num_not_answered == 0):
             child_part = get_part_from_magic_part_lookup_session(
                 section=self._assessment_section,
                 part_id=child_part_id,
@@ -286,7 +278,7 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
 
     def get_child_ids(self):
         """gets the ids for the child parts"""
-        if self.has_children():
+        if self.has_magic_children():
             if self._child_parts is None:
                 self.generate_children()
             child_ids = list()
@@ -299,7 +291,7 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
 
     def get_children(self):
         """return the current child parts of this assessment part"""
-        if self.has_children():
+        if self.has_magic_children():
             if self._child_parts is None:
                 self.generate_children()
             return self._child_parts
@@ -345,7 +337,7 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         """returns the first item associated with this magic Part Id in the Section"""
         for question_map in section._my_map['questions']:
             if question_map['assessmentPartId'] == str(self.get_id()):
-                return Id(question_map['questionId'])
+                return section.get_question(question_map=question_map).get_id()
         raise IllegalState('This Part currently has no Item in the Section')
 
     def delete(self):
