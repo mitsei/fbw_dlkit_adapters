@@ -112,7 +112,7 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
             else:
                 return parts
         for part in self._child_parts:
-            part.get_parts(parts, reference_level)
+            part.get_parts(parts, self._level_in_section)
             # Don't need to append here, because parts is passed by reference
             # so appending is redundant
             # child_parts = part.get_parts(parts, reference_level)
@@ -167,7 +167,9 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         return False # REALLY? What if this is the first, non-magic part?
 
     def finished_generating_children(self):
-        if self._child_parts is None:
+        # self._child_parts gets set to empty list () in self.generate_children()
+        # so it should come into here as [], not None
+        if self._child_parts is None or len(self._child_parts) == 0:
             if self.has_children():
                 self.generate_children()
             else:
@@ -175,17 +177,26 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         if len(self._child_parts) == self._max_waypoints:
             return True
         num_correct = 0
+        has_unfinished_children = False
         for part in self._child_parts:
+            if not part.finished_generating_children():
+                has_unfinished_children = True
             question_id = self.get_question_id_for_assessment_part(part.get_id())
             if question_id is None:
                 raise OperationFailed
             try:
-                if self._assessment_section.is_question_correct(question_id):
+                if self._assessment_section.is_correct(question_id):
                     num_correct += 1
             except IllegalState:
                 pass
         if num_correct >= self.my_osid_object._my_map['waypointQuota']:
             return True
+        # also self is finished generating children if any of its children are NOT finished
+        # i.e.   1 - W, NotFinished
+        #        1.1 - W, NotFinished   -- DO NOT generate 1.2
+        #        1.1.1 - W, Finished     1.1.2 - Generate this instead
+        if has_unfinished_children:
+            return False
         return False
 
     def get_question_id_for_assessment_part(self, assessment_part_id):
@@ -206,7 +217,6 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         # Prepare common Id elements for children:
         objective_id = scaffold_objective_ids.next() # Assume just one for now
         my_id = self.my_osid_object.get_id()
-        orig_identifier = unquote(my_id.get_identifier()).split('?')[0]
         namespace = 'assessment_authoring.AssessmentPart'
         level = self._level + 1
         arg_map = {'parent_id': str(my_id),
@@ -236,16 +246,37 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
             return
 
         # Check if any child parts are finished. This will force them to generate children too
-        # If any return True then add the new childId that as generated above,
-        # because all the grandchildren are done, so we need a new child
-        one_child_has_finished = False
+        # have to inspect the child_parts for waypoint quota, because only checking
+        # child_part.finished_generating_children() skips the entire level of child_part,
+        # since finished_generating_children() checks the children of the child_part.
+        should_add_new_sibling = False
+        waypoint_quota_met = False
+        num_correct = 0
         for part in self._child_parts:
             try:
-                if part.finished_generating_children():
-                    one_child_has_finished = True
+                # also count up waypoint quota for the child_parts level
+                # only add a new sibling if the waypoint quota for this level has not been achieved
+                question_id = self.get_question_id_for_assessment_part(part.get_id())
+                if question_id is None:
+                    raise OperationFailed
+                try:
+                    if self._assessment_section.is_correct(question_id):
+                        num_correct += 1
+                except IllegalState:
+                    pass
+
+                # only add a new sibling if this child_part has been answered
+                # otherwise, the student should answer this one, first!
+                if part.finished_generating_children() and self._assessment_section.is_question_answered(question_id):
+                    should_add_new_sibling = True
+
             except OperationFailed:
                 pass  # there is a new question that hasn't appeared in the section yet
-        if not self._child_parts or one_child_has_finished:
+
+        if num_correct >= self.my_osid_object._my_map['waypointQuota']:
+            waypoint_quota_met = True
+
+        if not self._child_parts or (should_add_new_sibling and not waypoint_quota_met):
             child_part = get_part_from_magic_part_lookup_session(
                 section=self._assessment_section,
                 part_id=child_part_id,
