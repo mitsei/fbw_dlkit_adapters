@@ -243,7 +243,6 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         # child_part.finished_generating_children() skips the entire level of child_part,
         # since finished_generating_children() checks the children of the child_part.
         should_add_new_sibling = False
-        waypoint_quota_met = False
         num_correct = 0
         num_not_answered = 0
         for part in self._child_parts:
@@ -265,8 +264,7 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
             except OperationFailed:
                 pass  # there is a new question that hasn't appeared in the section yet
 
-        if num_correct >= self.my_osid_object._my_map['waypointQuota']:
-            waypoint_quota_met = True
+        waypoint_quota_met = (num_correct >= self.my_osid_object._my_map['waypointQuota'])
 
         if not self._child_parts or (should_add_new_sibling and not waypoint_quota_met and num_not_answered == 0):
             child_part = get_part_from_magic_part_lookup_session(
