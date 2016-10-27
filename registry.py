@@ -4,6 +4,17 @@
 
 from ..osid import registry as osid_registry
 
+ASSESSMENT_PART_GENUS_TYPES = {
+    'fbw-specify-lo': {
+        'authority': 'ODL.MIT.EDU',
+        'namespace': 'assessment-part-genus-type',
+        'identifier': 'fbw-specify-lo',
+        'display_name': 'Specify the LO only',
+        'display_label': 'Specify the LO only',
+        'description': 'Specify the LO only for this section',
+        'domain': 'assessment_authoring.AssessmentPart'},
+}
+
 ASSESSMENT_PART_RECORD_TYPES = {
     'scaffold-down': {
         'authority': 'ODL.MIT.EDU',
