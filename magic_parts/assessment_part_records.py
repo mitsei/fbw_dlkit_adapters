@@ -98,6 +98,11 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
                 self.my_osid_object._my_map['itemIds'] = [str(self.get_my_item_id_from_section(assessment_section))]
             except IllegalState:
                 self.load_item_for_objective()
+            except AttributeError:
+                # when the magic part is being retrieved without a section ...
+                # i.e. when authoring, but no itemId explicitly set (perhaps it
+                #      was only set with a learningObjectiveId)
+                self.my_osid_object._my_map['itemIds'] = []
 
     def get_parts(self, parts=None, reference_level=0):
         """Recursively returns a depth-first list of all known magic parts"""
