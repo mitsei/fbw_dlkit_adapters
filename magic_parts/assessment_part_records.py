@@ -139,10 +139,22 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         for objective_id_str in self.my_osid_object._my_map['learningObjectiveIds']:
             item_query.match_learning_objective_id(Id(objective_id_str), True)
         item_list = list(item_query_session.get_items_by_query(item_query))
-        # I'm not sure this works? If all sibling items are generated at once, then
-        # won't all items with this LO be seen / in the section map?
-        seen_questions = self._assessment_section._my_map['questions']
-        seen_items = [question['itemId'] for question in seen_questions]
+        # Let's query all takens and their children sections for questions, to
+        # remove seen ones
+        taking_agent_id = self._assessment_section._assessment_taken.taking_agent_id
+        atqs = mgr.get_assessment_taken_query_session(proxy=self.my_osid_object._proxy)
+        atqs.use_federated_bank_view()
+        querier = atqs.get_assessment_taken_query()
+        querier.match_taking_agent_id(taking_agent_id, match=True)
+        takens = atqs.get_assessments_taken_by_query(querier)
+        # let's seed this with the current section's questions
+        seen_items = [question['itemId'] for question in self._assessment_section._my_map['questions']]
+        for taken in takens:
+            try:
+                for section in taken._get_assessment_sections():
+                    seen_items += [question['itemId'] for question in section._my_map['questions']]
+            except KeyError:
+                pass  # sections not set up for the taken yet -- so not viewed by the user
         unseen_item_id = None
         # need to randomly shuffle this item_list
         shuffle(item_list)
