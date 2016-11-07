@@ -4,11 +4,12 @@ from bson import ObjectId
 
 from copy import deepcopy
 
+from dlkit.mongo.id.objects import IdList
 from dlkit.mongo.osid import record_templates as osid_records
 from dlkit.mongo.assessment.objects import Question
 from dlkit.mongo.assessment.sessions import ItemLookupSession
 from dlkit.mongo.utilities import MongoClientValidated
-from dlkit.mongo.osid.osid_errors import IllegalState
+from dlkit.mongo.osid.osid_errors import IllegalState, NotFound
 from dlkit.mongo.primitives import Id
 
 from random import shuffle
@@ -106,6 +107,26 @@ class MagicRandomizedMCItemRecord(ObjectInitRecord):
 
     def set_params(self, params):
         self._magic_params = params
+
+    def get_answer_for_response(self, response):
+        response_set = set([str(c) for c in response.get_choice_ids()])
+        for answer in self.my_osid_object.get_answers():
+            if response_set == set([str(c) for c in answer.get_choice_ids()]):
+                return answer
+        for answer in self.my_osid_object.get_wrong_answers():
+            if response_set == set([str(c) for c in answer.get_choice_ids()]):
+                return answer
+        raise NotFound('no matching answer found for response')
+
+    def get_confused_learning_objective_ids_for_response(self, response):
+        try:
+            answer = self.get_answer_for_response(response)
+        except NotFound:
+            raise IllegalState('no answer matching response was found')
+        try:
+            return answer.get_confused_learning_objective_ids()
+        except AttributeError:
+            return IdList([])
 
 
 class MagicRandomizedMCItemFormRecord(osid_records.OsidRecord):
