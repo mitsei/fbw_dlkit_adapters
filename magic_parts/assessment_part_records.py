@@ -98,6 +98,11 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
                 self.my_osid_object._my_map['itemIds'] = [str(self.get_my_item_id_from_section(assessment_section))]
             except IllegalState:
                 self.load_item_for_objective()
+            except AttributeError:
+                # when the magic part is being retrieved without a section ...
+                # i.e. when authoring, but no itemId explicitly set (perhaps it
+                #      was only set with a learningObjectiveId)
+                self.my_osid_object._my_map['itemIds'] = []
 
     def get_parts(self, parts=None, reference_level=0):
         """Recursively returns a depth-first list of all known magic parts"""
@@ -134,10 +139,22 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         for objective_id_str in self.my_osid_object._my_map['learningObjectiveIds']:
             item_query.match_learning_objective_id(Id(objective_id_str), True)
         item_list = list(item_query_session.get_items_by_query(item_query))
-        # I'm not sure this works? If all sibling items are generated at once, then
-        # won't all items with this LO be seen / in the section map?
-        seen_questions = self._assessment_section._my_map['questions']
-        seen_items = [question['itemId'] for question in seen_questions]
+        # Let's query all takens and their children sections for questions, to
+        # remove seen ones
+        taking_agent_id = self._assessment_section._assessment_taken.taking_agent_id
+        atqs = mgr.get_assessment_taken_query_session(proxy=self.my_osid_object._proxy)
+        atqs.use_federated_bank_view()
+        querier = atqs.get_assessment_taken_query()
+        querier.match_taking_agent_id(taking_agent_id, match=True)
+        takens = atqs.get_assessments_taken_by_query(querier)
+        # let's seed this with the current section's questions
+        seen_items = [question['itemId'] for question in self._assessment_section._my_map['questions']]
+        for taken in takens:
+            try:
+                for section in taken._get_assessment_sections():
+                    seen_items += [question['itemId'] for question in section._my_map['questions']]
+            except KeyError:
+                pass  # sections not set up for the taken yet -- so not viewed by the user
         unseen_item_id = None
         # need to randomly shuffle this item_list
         shuffle(item_list)
@@ -148,7 +165,10 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         if unseen_item_id is not None:
             self.my_osid_object._my_map['itemIds'] = [str(unseen_item_id)]
         elif self.my_osid_object._my_map['allowRepeatItems']:
-            self.my_osid_object._my_map['itemIds'] = [str(item_list[0].ident)]
+            if len(item_list) > 0:
+                self.my_osid_object._my_map['itemIds'] = [str(item_list[0].ident)]
+            else:
+                self.my_osid_object._my_map['itemIds'] = ['']
         else:
             self.my_osid_object._my_map['itemIds'] = ['']
 
