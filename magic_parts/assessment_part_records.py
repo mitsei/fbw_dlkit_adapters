@@ -227,11 +227,16 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
                                namespace=namespace,
                                identifier=magic_identifier_part)
             if str(child_part_id) in section_part_ids:
-                child_part = get_part_from_magic_part_lookup_session(
-                    section=self._assessment_section,
-                    part_id=child_part_id,
-                    runtime=self.my_osid_object._runtime,
-                    proxy=self.my_osid_object._proxy)
+                # First check if the part is already cached in the section:
+                if child_part_id in self._assessment_section._assessment_parts:
+                    child_part = self._assessment_section._assessment_parts[child_part_id]
+                # Otherwise stand up the lookup session:
+                else:
+                    child_part = get_part_from_magic_part_lookup_session(
+                        section=self._assessment_section,
+                        part_id=child_part_id,
+                        runtime=self.my_osid_object._runtime,
+                        proxy=self.my_osid_object._proxy)
                 self._child_parts.append(child_part)
             else:
                 break
