@@ -69,22 +69,28 @@ class RandomizedMCItemLookupSession(ItemLookupSession):
     """
     def __init__(self, *args, **kwargs):
         super(RandomizedMCItemLookupSession, self).__init__(*args, **kwargs)
+        self._magic_items = {}
 
     def get_item(self, item_id):
         authority = item_id.authority
-        if authority == MAGIC_AUTHORITY:
-            # for now, this will not work with aliased IDs...
-            magic_identifier = unquote(item_id.identifier)
-            original_identifier = magic_identifier.split('?')[0]
-            choice_ids = json.loads(magic_identifier.split('?')[-1])
-            original_item_id = Id(identifier=original_identifier,
-                                  namespace=item_id.namespace,
-                                  authority=self._catalog.ident.authority)
-            orig_item = super(RandomizedMCItemLookupSession, self).get_item(original_item_id)
-            orig_item.set_params(choice_ids)
-            return orig_item
+        if item_id not in self._magic_items:
+            if authority == MAGIC_AUTHORITY:
+                # for now, this will not work with aliased IDs...
+                magic_identifier = unquote(item_id.identifier)
+                original_identifier = magic_identifier.split('?')[0]
+                choice_ids = json.loads(magic_identifier.split('?')[-1])
+                original_item_id = Id(identifier=original_identifier,
+                                      namespace=item_id.namespace,
+                                      authority=self._catalog.ident.authority)
+                orig_item = super(RandomizedMCItemLookupSession, self).get_item(original_item_id)
+                orig_item.set_params(choice_ids)
+                item = orig_item
+            else:
+                item = super(RandomizedMCItemLookupSession, self).get_item(item_id)
+            self._magic_items[item_id] = item
+            return item
         else:
-            return super(RandomizedMCItemLookupSession, self).get_item(item_id)
+            return self._magic_items[item_id]
 
 
 class MagicRandomizedMCItemRecord(ItemWithWrongAnswerLOsRecord):
