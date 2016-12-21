@@ -146,15 +146,21 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         atqs.use_federated_bank_view()
         querier = atqs.get_assessment_taken_query()
         querier.match_taking_agent_id(taking_agent_id, match=True)
-        takens = atqs.get_assessments_taken_by_query(querier)
         # let's seed this with the current section's questions
         seen_items = [question['itemId'] for question in self._assessment_section._my_map['questions']]
-        for taken in takens:
-            try:
-                for section in taken._get_assessment_sections():
-                    seen_items += [question['itemId'] for question in section._my_map['questions']]
-            except KeyError:
-                pass  # sections not set up for the taken yet -- so not viewed by the user
+        taken_ids = [str(t.ident)
+                     for t in atqs.get_assessments_taken_by_query(querier)
+                     if str(t.ident) != str(self._assessment_section._assessment_taken.ident)]
+        # Try to find the questions directly via Mongo query -- don't do
+        # for section in taken._get_assessment_sections():
+        #     seen_items += [question['itemId'] for question in section._my_map['questions']]
+        # because standing up all the sections is wasteful
+        collection = MongoClientValidated('assessment',
+                                          collection='AssessmentSection',
+                                          runtime=self.my_osid_object._runtime)
+        results = collection.find({"assessmentTakenId": {"$in": taken_ids}})
+        for section in results:
+            seen_items += [question['itemId'] for question in section._my_map['questions']]
         unseen_item_id = None
         # need to randomly shuffle this item_list
         shuffle(item_list)
@@ -252,11 +258,12 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
                     child_part = self._assessment_section._assessment_parts[child_part_id]
                 # Otherwise stand up the lookup session:
                 else:
-                    child_part = get_part_from_magic_part_lookup_session(
-                        section=self._assessment_section,
-                        part_id=child_part_id,
-                        runtime=self.my_osid_object._runtime,
-                        proxy=self.my_osid_object._proxy)
+                    child_part = self._assessment_section._get_assessment_part(child_part_id)
+                    # child_part = get_part_from_magic_part_lookup_session(
+                    #     section=self._assessment_section,
+                    #     part_id=child_part_id,
+                    #     runtime=self.my_osid_object._runtime,
+                    #     proxy=self.my_osid_object._proxy)
                 self._child_parts.append(child_part)
             else:
                 break
@@ -715,21 +722,26 @@ class MagicAssessmentPartLookupSession(AssessmentPartLookupSession):
     def __init__(self, assessment_section=None, *args, **kwargs):
         super(MagicAssessmentPartLookupSession, self).__init__(*args, **kwargs)
         self._my_assessment_section = assessment_section
+        self._magic_parts = {}
 
     def get_assessment_part(self, assessment_part_id):
         authority = assessment_part_id.get_authority()
-        if authority == MAGIC_PART_AUTHORITY:
-            magic_identifier = unquote(assessment_part_id.identifier)
-            orig_identifier = magic_identifier.split('?')[0]
-            assessment_part = super(MagicAssessmentPartLookupSession, self).get_assessment_part(assessment_part_id=Id(authority=self._catalog.ident.authority,
-                                                                                                                      namespace=assessment_part_id.get_identifier_namespace(),
-                                                                                                                      identifier=orig_identifier))
-            # should a magic assessment part's parent be the original part?
-            # Or that original part's parent?
-            assessment_part.initialize(assessment_part_id.identifier, self._my_assessment_section)
+        if assessment_part_id not in self._magic_parts:
+            if authority == MAGIC_PART_AUTHORITY:
+                magic_identifier = unquote(assessment_part_id.identifier)
+                orig_identifier = magic_identifier.split('?')[0]
+                assessment_part = super(MagicAssessmentPartLookupSession, self).get_assessment_part(assessment_part_id=Id(authority=self._catalog.ident.authority,
+                                                                                                                          namespace=assessment_part_id.get_identifier_namespace(),
+                                                                                                                          identifier=orig_identifier))
+                # should a magic assessment part's parent be the original part?
+                # Or that original part's parent?
+                assessment_part.initialize(assessment_part_id.identifier, self._my_assessment_section)
+            else:
+                assessment_part = super(MagicAssessmentPartLookupSession, self).get_assessment_part(assessment_part_id)
+            self._magic_parts[assessment_part_id] = assessment_part
             return assessment_part
         else:
-            return super(MagicAssessmentPartLookupSession, self).get_assessment_part(assessment_part_id)
+            return self._magic_parts[assessment_part_id]
 
     def get_assessment_parts_by_ids(self, assessment_part_ids):
         part_list = []
