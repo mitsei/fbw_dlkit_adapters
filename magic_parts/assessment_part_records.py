@@ -168,9 +168,9 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
             if len(item_list) > 0:
                 self.my_osid_object._my_map['itemIds'] = [str(item_list[0].ident)]
             else:
-                self.my_osid_object._my_map['itemIds'] = ['']
+                self.my_osid_object._my_map['itemIds'] = []  # don't put '' here, it will break when it tries to find an item with id ''
         else:
-            self.my_osid_object._my_map['itemIds'] = ['']
+            self.my_osid_object._my_map['itemIds'] = []  # don't put '' here, it will break when it tries to find an item with id ''
 
     def has_magic_children(self):
         """checks if child parts are currently available for this part"""
