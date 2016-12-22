@@ -149,8 +149,7 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         # let's seed this with the current section's questions
         seen_items = [question['itemId'] for question in self._assessment_section._my_map['questions']]
         taken_ids = [str(t.ident)
-                     for t in atqs.get_assessments_taken_by_query(querier)
-                     if str(t.ident) != str(self._assessment_section._assessment_taken.ident)]
+                     for t in atqs.get_assessments_taken_by_query(querier)]
         # Try to find the questions directly via Mongo query -- don't do
         # for section in taken._get_assessment_sections():
         #     seen_items += [question['itemId'] for question in section._my_map['questions']]
@@ -160,7 +159,8 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
                                           runtime=self.my_osid_object._runtime)
         results = collection.find({"assessmentTakenId": {"$in": taken_ids}})
         for section in results:
-            seen_items += [question['itemId'] for question in section._my_map['questions']]
+            if 'questions' in section:
+                seen_items += [question['itemId'] for question in section['questions']]
         unseen_item_id = None
         # need to randomly shuffle this item_list
         shuffle(item_list)
@@ -723,6 +723,14 @@ class MagicAssessmentPartLookupSession(AssessmentPartLookupSession):
         super(MagicAssessmentPartLookupSession, self).__init__(*args, **kwargs)
         self._my_assessment_section = assessment_section
         self._magic_parts = {}
+
+    def update_section(self, assessment_section):
+        # because we are now caching this lookup session in the AssessmentSession,
+        #   in order to check the right seen_items for each magic part, we need to
+        #   pass the parts an updated section...
+        self._my_assessment_section = assessment_section
+        for part in self._magic_parts:
+            part._assessment_section = assessment_section
 
     def get_assessment_part(self, assessment_part_id):
         authority = assessment_part_id.get_authority()
