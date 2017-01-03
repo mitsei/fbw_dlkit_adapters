@@ -147,13 +147,15 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         querier = atqs.get_assessment_taken_query()
         querier.match_taking_agent_id(taking_agent_id, match=True)
         # let's seed this with the current section's questions
-        seen_items = [question['itemId'] for question in self._assessment_section._my_map['questions']]
+        seen_items = [item_id for item_id in self._assessment_section._my_map['itemIdsList']]
         taken_ids = [str(t.ident)
                      for t in atqs.get_assessments_taken_by_query(querier)]
         # Try to find the questions directly via Mongo query -- don't do
         # for section in taken._get_assessment_sections():
         #     seen_items += [question['itemId'] for question in section._my_map['questions']]
         # because standing up all the sections is wasteful
+        # import pdb
+        # pdb.set_trace()
         collection = MongoClientValidated('assessment',
                                           collection='AssessmentSection',
                                           runtime=self.my_osid_object._runtime)
