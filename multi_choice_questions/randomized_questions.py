@@ -90,7 +90,7 @@ class RandomizedMCItemLookupSession(ItemLookupSession):
             self._magic_items[item_id] = item
             return item
         else:
-            return self._magic_items[item_id]
+            return deepcopy(self._magic_items[item_id])
 
 
 class MagicRandomizedMCItemRecord(ItemWithWrongAnswerLOsRecord):
