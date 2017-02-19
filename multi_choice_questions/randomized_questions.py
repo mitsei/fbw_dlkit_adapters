@@ -106,7 +106,12 @@ class MagicRandomizedMCItemRecord(ItemWithWrongAnswerLOsRecord):
                             runtime=self.my_osid_object._runtime,
                             proxy=self.my_osid_object._proxy)
         if self._magic_params is not None:
-            question.set_values(self._magic_params)
+            try:
+                if question.shuffle:
+                    question.set_values(self._magic_params)
+            except AttributeError:
+                # no shuffle arg, so shuffle by default
+                question.set_values(self._magic_params)
         return question
 
     question = property(fget=get_question)
@@ -158,9 +163,11 @@ class MultiChoiceRandomizeChoicesQuestionRecord(MultiChoiceTextAndFilesQuestionR
         super(MultiChoiceRandomizeChoicesQuestionRecord, self).__init__(osid_object)
         if not self.my_osid_object._my_map['choices']:
             raise IllegalState()
-        choices = self.my_osid_object._my_map['choices']
-        shuffle(choices)
-        self.my_osid_object._my_map['choices'] = choices
+        if ('shuffle' not in self.my_osid_object._my_map or
+                self.my_osid_object._my_map['shuffle']):
+            choices = self.my_osid_object._my_map['choices']
+            shuffle(choices)
+            self.my_osid_object._my_map['choices'] = choices
         # Claim authority on this object, until someone else does:
         self.my_osid_object._authority = MAGIC_AUTHORITY
 
