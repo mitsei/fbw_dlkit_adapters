@@ -161,8 +161,10 @@ class MultiChoiceRandomizeChoicesQuestionRecord(MultiChoiceTextAndFilesQuestionR
     def __init__(self, osid_object):
         self._original_choice_order = deepcopy(osid_object._my_map['choices'])
         super(MultiChoiceRandomizeChoicesQuestionRecord, self).__init__(osid_object)
-        if not self.my_osid_object._my_map['choices']:
-            raise IllegalState()
+        # it is possible to have no choices set yet --- so don't throw exceptions in that
+        #   case
+        # if not self.my_osid_object._my_map['choices']:
+        #     raise IllegalState()
         if ('shuffle' not in self.my_osid_object._my_map or
                 self.my_osid_object._my_map['shuffle']):
             choices = self.my_osid_object._my_map['choices']
@@ -194,8 +196,8 @@ class MultiChoiceRandomizeChoicesQuestionRecord(MultiChoiceTextAndFilesQuestionR
     id_ = property(fget=get_id)
 
     def get_unrandomized_choices(self):
-        if not self.my_osid_object._my_map['choices']:
-            raise IllegalState()
+        # if not self.my_osid_object._my_map['choices']:
+        #     raise IllegalState()
         return self._original_choice_order
 
     def set_values(self, choice_ids):
@@ -203,8 +205,8 @@ class MultiChoiceRandomizeChoicesQuestionRecord(MultiChoiceTextAndFilesQuestionR
         ["57978959cdfc5c42eefb36d1", "57978959cdfc5c42eefb36d0",
         "57978959cdfc5c42eefb36cf", "57978959cdfc5c42eefb36ce"]
         """
-        if not self.my_osid_object._my_map['choices']:
-            raise IllegalState()
+        # if not self.my_osid_object._my_map['choices']:
+        #     raise IllegalState()
         organized_choices = []
         for choice_id in choice_ids:
             choice_obj = [c for c in self._original_choice_order if c['id'] == choice_id][0]
