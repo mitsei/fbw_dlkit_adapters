@@ -8,16 +8,17 @@ from collections import OrderedDict
 from random import shuffle
 from urllib import quote, unquote
 
-from dlkit.abstract_osid.assessment_authoring import record_templates as abc_assessment_authoring_records
 from dlkit.mongo.assessment.assessment_utilities import get_assessment_part_lookup_session
 from dlkit.mongo.assessment_authoring.objects import AssessmentPartList
 from dlkit.mongo.assessment_authoring.sessions import AssessmentPartLookupSession
 from dlkit.mongo.id.objects import IdList
 from dlkit.mongo.osid import record_templates as osid_records
 from dlkit.mongo.osid.metadata import Metadata
-from dlkit.mongo.primitives import Id
-from dlkit.mongo.osid.osid_errors import IllegalState, InvalidArgument, NoAccess, NotFound, OperationFailed
 from dlkit.mongo.utilities import MongoClientValidated
+
+from dlkit.abstract_osid.assessment_authoring import record_templates as abc_assessment_authoring_records
+from dlkit.abstract_osid.osid.errors import IllegalState, InvalidArgument, NoAccess, NotFound, OperationFailed
+from dlkit.primordium.id.primitives import Id
 
 from ...osid.base_records import ObjectInitRecord
 
@@ -154,8 +155,6 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         # for section in taken._get_assessment_sections():
         #     seen_items += [question['itemId'] for question in section._my_map['questions']]
         # because standing up all the sections is wasteful
-        # import pdb
-        # pdb.set_trace()
         collection = MongoClientValidated('assessment',
                                           collection='AssessmentSection',
                                           runtime=self.my_osid_object._runtime)

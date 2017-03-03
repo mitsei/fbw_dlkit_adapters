@@ -1,21 +1,19 @@
 import json
 
-from bson import ObjectId
-
 from copy import deepcopy
 
 from dlkit.mongo.osid import record_templates as osid_records
 from dlkit.mongo.assessment.objects import Question
 from dlkit.mongo.assessment.sessions import ItemLookupSession
-from dlkit.mongo.utilities import MongoClientValidated
-from dlkit.mongo.osid.osid_errors import IllegalState
-from dlkit.mongo.primitives import Id
+
+# from dlkit.abstract_osid.osid.errors import IllegalState
+from dlkit.primordium.id.primitives import Id
 
 from random import shuffle
 
 from urllib import unquote, quote
 
-from ...osid.base_records import ObjectInitRecord
+# from ...osid.base_records import ObjectInitRecord
 from ...assessment.basic.multi_choice_records import MultiChoiceTextAndFilesQuestionFormRecord,\
     MultiChoiceTextAndFilesQuestionRecord
 from ...assessment.basic.base_records import ItemWithWrongAnswerLOsRecord
