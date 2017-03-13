@@ -9,13 +9,13 @@ from random import shuffle
 from urllib import quote, unquote
 
 from dlkit.abstract_osid.assessment_authoring import record_templates as abc_assessment_authoring_records
-from dlkit.json.assessment.assessment_utilities import get_assessment_part_lookup_session
-from dlkit.json.assessment_authoring.objects import AssessmentPartList
-from dlkit.json.assessment_authoring.sessions import AssessmentPartLookupSession
-from dlkit.json.id.objects import IdList
-from dlkit.json.osid import record_templates as osid_records
-from dlkit.json.osid.metadata import Metadata
-from dlkit.json.utilities import JSONClientValidated
+from dlkit.json_.assessment.assessment_utilities import get_assessment_part_lookup_session
+from dlkit.json_.assessment_authoring.objects import AssessmentPartList
+from dlkit.json_.assessment_authoring.sessions import AssessmentPartLookupSession
+from dlkit.json_.id.objects import IdList
+from dlkit.json_.osid import record_templates as osid_records
+from dlkit.json_.osid.metadata import Metadata
+from dlkit.json_.utilities import JSONClientValidated
 
 from dlkit.primordium.id.primitives import Id
 from dlkit.abstract_osid.osid.errors import IllegalState, InvalidArgument, NoAccess, NotFound, OperationFailed

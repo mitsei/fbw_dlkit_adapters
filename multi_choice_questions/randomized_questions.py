@@ -2,9 +2,9 @@ import json
 
 from copy import deepcopy
 
-from dlkit.json.osid import record_templates as osid_records
-from dlkit.json.assessment.objects import Question
-from dlkit.json.assessment.sessions import ItemLookupSession
+from dlkit.json_.osid import record_templates as osid_records
+from dlkit.json_.assessment.objects import Question
+from dlkit.json_.assessment.sessions import ItemLookupSession
 from dlkit.primordium.id.primitives import Id
 
 from random import shuffle
