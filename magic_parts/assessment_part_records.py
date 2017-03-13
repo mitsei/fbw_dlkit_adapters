@@ -8,13 +8,17 @@ from collections import OrderedDict
 from random import shuffle
 from urllib import quote, unquote
 
-from dlkit.mongo.assessment.assessment_utilities import get_assessment_part_lookup_session
-from dlkit.mongo.assessment_authoring.objects import AssessmentPartList
-from dlkit.mongo.assessment_authoring.sessions import AssessmentPartLookupSession
-from dlkit.mongo.id.objects import IdList
-from dlkit.mongo.osid import record_templates as osid_records
-from dlkit.mongo.osid.metadata import Metadata
-from dlkit.mongo.utilities import MongoClientValidated
+from dlkit.abstract_osid.assessment_authoring import record_templates as abc_assessment_authoring_records
+from dlkit.json.assessment.assessment_utilities import get_assessment_part_lookup_session
+from dlkit.json.assessment_authoring.objects import AssessmentPartList
+from dlkit.json.assessment_authoring.sessions import AssessmentPartLookupSession
+from dlkit.json.id.objects import IdList
+from dlkit.json.osid import record_templates as osid_records
+from dlkit.json.osid.metadata import Metadata
+from dlkit.json.utilities import JSONClientValidated
+
+from dlkit.primordium.id.primitives import Id
+from dlkit.abstract_osid.osid.errors import IllegalState, InvalidArgument, NoAccess, NotFound, OperationFailed
 
 from dlkit.abstract_osid.assessment_authoring import record_templates as abc_assessment_authoring_records
 from dlkit.abstract_osid.osid.errors import IllegalState, InvalidArgument, NoAccess, NotFound, OperationFailed
@@ -155,9 +159,9 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         # for section in taken._get_assessment_sections():
         #     seen_items += [question['itemId'] for question in section._my_map['questions']]
         # because standing up all the sections is wasteful
-        collection = MongoClientValidated('assessment',
-                                          collection='AssessmentSection',
-                                          runtime=self.my_osid_object._runtime)
+        collection = JSONClientValidated('assessment',
+                                         collection='AssessmentSection',
+                                         runtime=self.my_osid_object._runtime)
         results = collection.find({"assessmentTakenId": {"$in": taken_ids}})
         for section in results:
             if 'questions' in section:
@@ -372,12 +376,12 @@ class ScaffoldDownAssessmentPartRecord(ObjectInitRecord):
         raise IllegalState('This Part currently has no Item in the Section')
 
     def delete(self):
-        """need this because the MongoClientValidated cannot deal with the magic identifier"""
+        """need this because the JSONClientValidated cannot deal with the magic identifier"""
         magic_identifier = unquote(self.get_id().identifier)
         orig_identifier = magic_identifier.split('?')[0]
-        collection = MongoClientValidated('assessment_authoring',
-                                          collection='AssessmentPart',
-                                          runtime=self.my_osid_object._runtime)
+        collection = JSONClientValidated('assessment_authoring',
+                                         collection='AssessmentPart',
+                                         runtime=self.my_osid_object._runtime)
         collection.delete_one({'_id': ObjectId(orig_identifier)})
 
     def has_parent_part(self):
